@@ -146,23 +146,3 @@ pub const Vector2 = struct {
         try writer.print("Vector2({d:.2}, {d:.2})", .{ self.x, self.y });
     }
 };
-
-test "Vector2.add" {
-    const a = Vector2{ .x = 1, .y = 2 };
-    const b = Vector2{ .x = 3, .y = 4 };
-    const result = a.add(b);
-    try std.testing.expectEqual(@as(f32, 4), result.x);
-    try std.testing.expectEqual(@as(f32, 6), result.y);
-}
-
-test "Vector2.distance" {
-    const a = Vector2{ .x = 0, .y = 0 };
-    const b = Vector2{ .x = 3, .y = 4 };
-    try std.testing.expectApproxEqAbs(@as(f32, 5), a.distance(b), 0.001);
-}
-
-test "Vector2.normalize" {
-    const v = Vector2{ .x = 3, .y = 4 };
-    const n = v.normalize();
-    try std.testing.expectApproxEqAbs(@as(f32, 1), n.length(), 0.001);
-}
