@@ -74,10 +74,8 @@ pub const QuadTree = struct {
 
         if (self.children) |children| {
             const index = self.getQuadrant(node.x, node.y);
-            if (index) |i| {
-                try children[i].insert(node);
-                return;
-            }
+            try children[index].insert(node);
+            return;
         }
 
         try self.nodes.append(self.allocator, node);
@@ -87,16 +85,11 @@ pub const QuadTree = struct {
                 try self.subdivide();
             }
 
-            var i: usize = 0;
-            while (i < self.nodes.items.len) {
-                const n = self.nodes.items[i];
+            while (self.nodes.items.len > 0) {
+                const n = self.nodes.items[0];
                 const quadrant = self.getQuadrant(n.x, n.y);
-                if (quadrant) |q| {
-                    try self.children.?[q].insert(n);
-                    _ = self.nodes.swapRemove(i);
-                } else {
-                    i += 1;
-                }
+                try self.children.?[quadrant].insert(n);
+                _ = self.nodes.swapRemove(0);
             }
         }
     }
@@ -140,9 +133,22 @@ pub const QuadTree = struct {
 
         if (self.children) |children| {
             for (children) |child| {
-                child.findNearest(x, y, nearest, nearest_dist);
+                // Prune: skip children whose bounds are entirely farther than current nearest
+                if (child.minDistToBounds(x, y) < nearest_dist.*) {
+                    child.findNearest(x, y, nearest, nearest_dist);
+                }
             }
         }
+    }
+
+    fn minDistToBounds(self: *QuadTree, px: f32, py: f32) f32 {
+        // Find closest point on rectangle bounds to query point
+        const closest_x = std.math.clamp(px, self.bounds.x, self.bounds.x + self.bounds.width);
+        const closest_y = std.math.clamp(py, self.bounds.y, self.bounds.y + self.bounds.height);
+
+        const dx = closest_x - px;
+        const dy = closest_y - py;
+        return @sqrt(dx * dx + dy * dy);
     }
 
     pub fn count(self: *QuadTree) usize {
@@ -162,33 +168,44 @@ pub const QuadTree = struct {
         const y = self.bounds.y;
 
         var children: [4]*QuadTree = undefined;
+        var allocated: usize = 0;
+
+        errdefer {
+            for (children[0..allocated]) |child| {
+                self.allocator.destroy(child);
+            }
+        }
 
         children[0] = try self.allocator.create(QuadTree);
+        allocated = 1;
         children[0].* = initWithDepth(self.allocator, .{ .x = x, .y = y, .width = half_w, .height = half_h }, self.depth + 1);
 
         children[1] = try self.allocator.create(QuadTree);
+        allocated = 2;
         children[1].* = initWithDepth(self.allocator, .{ .x = x + half_w, .y = y, .width = half_w, .height = half_h }, self.depth + 1);
 
         children[2] = try self.allocator.create(QuadTree);
+        allocated = 3;
         children[2].* = initWithDepth(self.allocator, .{ .x = x, .y = y + half_h, .width = half_w, .height = half_h }, self.depth + 1);
 
         children[3] = try self.allocator.create(QuadTree);
+        allocated = 4;
         children[3].* = initWithDepth(self.allocator, .{ .x = x + half_w, .y = y + half_h, .width = half_w, .height = half_h }, self.depth + 1);
 
         self.children = children;
     }
 
-    fn getQuadrant(self: *QuadTree, x: f32, y: f32) ?usize {
+    fn getQuadrant(self: *QuadTree, px: f32, py: f32) usize {
         const mid_x = self.bounds.x + self.bounds.width / 2;
         const mid_y = self.bounds.y + self.bounds.height / 2;
 
-        const top = y < mid_y;
-        const left = x < mid_x;
+        const top = py < mid_y;
+        const left = px < mid_x;
 
-        if (top and left) return 0;
-        if (top and !left) return 1;
-        if (!top and left) return 2;
-        if (!top and !left) return 3;
-        return null;
+        if (top) {
+            return if (left) 0 else 1;
+        } else {
+            return if (left) 2 else 3;
+        }
     }
 };

@@ -1,147 +1,181 @@
 const std = @import("std");
+const expect = @import("zspec").expect;
 const zig_utils = @import("zig_utils");
 const QuadTree = zig_utils.QuadTree;
 const QuadTreeNode = zig_utils.QuadTreeNode;
 const Rectangle = zig_utils.Rectangle;
 
-test "Rectangle.contains" {
-    const rect = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
+pub const RectangleSpec = struct {
+    pub const contains = struct {
+        test "returns true for point inside rectangle" {
+            const rect = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
 
-    try std.testing.expect(rect.contains(50, 50));
-    try std.testing.expect(rect.contains(0, 0));
-    try std.testing.expect(rect.contains(99, 99));
-    try std.testing.expect(!rect.contains(100, 100));
-    try std.testing.expect(!rect.contains(-1, 50));
-    try std.testing.expect(!rect.contains(50, -1));
-}
+            try expect.toBeTrue(rect.contains(50, 50));
+            try expect.toBeTrue(rect.contains(0, 0));
+            try expect.toBeTrue(rect.contains(99, 99));
+        }
 
-test "Rectangle.intersects" {
-    const rect1 = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
-    const rect2 = Rectangle{ .x = 50, .y = 50, .width = 100, .height = 100 };
-    const rect3 = Rectangle{ .x = 200, .y = 200, .width = 50, .height = 50 };
+        test "returns false for point outside rectangle" {
+            const rect = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
 
-    try std.testing.expect(rect1.intersects(rect2));
-    try std.testing.expect(rect2.intersects(rect1));
-    try std.testing.expect(!rect1.intersects(rect3));
-    try std.testing.expect(!rect3.intersects(rect1));
-}
+            try expect.toBeFalse(rect.contains(100, 100));
+            try expect.toBeFalse(rect.contains(-1, 50));
+            try expect.toBeFalse(rect.contains(50, -1));
+        }
+    };
 
-test "QuadTree.init and deinit" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+    pub const intersects = struct {
+        test "returns true for overlapping rectangles" {
+            const rect1 = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
+            const rect2 = Rectangle{ .x = 50, .y = 50, .width = 100, .height = 100 };
 
-    try std.testing.expectEqual(@as(usize, 0), qt.count());
-}
+            try expect.toBeTrue(rect1.intersects(rect2));
+            try expect.toBeTrue(rect2.intersects(rect1));
+        }
 
-test "QuadTree.insert and count" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+        test "returns false for non-overlapping rectangles" {
+            const rect1 = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
+            const rect3 = Rectangle{ .x = 200, .y = 200, .width = 50, .height = 50 };
 
-    try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
-    try qt.insert(.{ .entity = 2, .x = 20, .y = 20 });
-    try qt.insert(.{ .entity = 3, .x = 30, .y = 30 });
+            try expect.toBeFalse(rect1.intersects(rect3));
+            try expect.toBeFalse(rect3.intersects(rect1));
+        }
+    };
+};
 
-    try std.testing.expectEqual(@as(usize, 3), qt.count());
-}
+pub const QuadTreeSpec = struct {
+    pub const init = struct {
+        test "creates empty tree with zero count" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-test "QuadTree.insert outside bounds" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+            try expect.equal(qt.count(), 0);
+        }
+    };
 
-    try qt.insert(.{ .entity = 1, .x = 200, .y = 200 });
+    pub const insert = struct {
+        test "adds nodes and increments count" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-    try std.testing.expectEqual(@as(usize, 0), qt.count());
-}
+            try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
+            try qt.insert(.{ .entity = 2, .x = 20, .y = 20 });
+            try qt.insert(.{ .entity = 3, .x = 30, .y = 30 });
 
-test "QuadTree.insert causes subdivision" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+            try expect.equal(qt.count(), 3);
+        }
 
-    // Insert more than max_nodes to trigger subdivision
-    for (0..10) |i| {
-        try qt.insert(.{ .entity = @intCast(i), .x = @floatFromInt(i * 5), .y = @floatFromInt(i * 5) });
-    }
+        test "ignores nodes outside bounds" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-    try std.testing.expectEqual(@as(usize, 10), qt.count());
-    try std.testing.expect(qt.children != null);
-}
+            try qt.insert(.{ .entity = 1, .x = 200, .y = 200 });
 
-test "QuadTree.query" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+            try expect.equal(qt.count(), 0);
+        }
 
-    try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
-    try qt.insert(.{ .entity = 2, .x = 50, .y = 50 });
-    try qt.insert(.{ .entity = 3, .x = 90, .y = 90 });
+        test "subdivides when exceeding max_nodes" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-    var result: std.ArrayListUnmanaged(QuadTreeNode) = .empty;
-    defer result.deinit(allocator);
+            for (0..10) |i| {
+                try qt.insert(.{ .entity = @intCast(i), .x = @floatFromInt(i * 5), .y = @floatFromInt(i * 5) });
+            }
 
-    try qt.query(.{ .x = 0, .y = 0, .width = 30, .height = 30 }, &result, allocator);
+            try expect.equal(qt.count(), 10);
+            try expect.toBeTrue(qt.children != null);
+        }
+    };
 
-    try std.testing.expectEqual(@as(usize, 1), result.items.len);
-    try std.testing.expectEqual(@as(u32, 1), result.items[0].entity);
-}
+    pub const query = struct {
+        test "returns nodes within range" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-test "QuadTree.queryNearest" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+            try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
+            try qt.insert(.{ .entity = 2, .x = 50, .y = 50 });
+            try qt.insert(.{ .entity = 3, .x = 90, .y = 90 });
 
-    try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
-    try qt.insert(.{ .entity = 2, .x = 50, .y = 50 });
-    try qt.insert(.{ .entity = 3, .x = 90, .y = 90 });
+            var result: std.ArrayListUnmanaged(QuadTreeNode) = .empty;
+            defer result.deinit(allocator);
 
-    const nearest = qt.queryNearest(12, 12, 100);
-    try std.testing.expect(nearest != null);
-    try std.testing.expectEqual(@as(u32, 1), nearest.?.entity);
+            try qt.query(.{ .x = 0, .y = 0, .width = 30, .height = 30 }, &result, allocator);
 
-    const no_result = qt.queryNearest(12, 12, 1);
-    try std.testing.expect(no_result == null);
-}
+            try expect.equal(result.items.len, 1);
+            try expect.equal(result.items[0].entity, 1);
+        }
 
-test "QuadTree.clear" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+        test "works with subdivided tree" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-    for (0..10) |i| {
-        try qt.insert(.{ .entity = @intCast(i), .x = @floatFromInt(i * 5), .y = @floatFromInt(i * 5) });
-    }
+            for (0..20) |i| {
+                const x: f32 = @floatFromInt((i % 10) * 10);
+                const y: f32 = @floatFromInt((i / 10) * 50);
+                try qt.insert(.{ .entity = @intCast(i), .x = x, .y = y });
+            }
 
-    try std.testing.expect(qt.count() > 0);
-    try std.testing.expect(qt.children != null);
+            var result: std.ArrayListUnmanaged(QuadTreeNode) = .empty;
+            defer result.deinit(allocator);
 
-    qt.clear();
+            try qt.query(.{ .x = 0, .y = 0, .width = 50, .height = 50 }, &result, allocator);
 
-    try std.testing.expectEqual(@as(usize, 0), qt.count());
-    // Children are retained after clear
-    try std.testing.expect(qt.children != null);
-}
+            try expect.toBeTrue(result.items.len > 0);
+        }
+    };
 
-test "QuadTree.query with subdivided tree" {
-    const allocator = std.testing.allocator;
-    var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
-    defer qt.deinit();
+    pub const queryNearest = struct {
+        test "returns closest node within max_distance" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
 
-    // Insert nodes in different quadrants
-    for (0..20) |i| {
-        const x: f32 = @floatFromInt((i % 10) * 10);
-        const y: f32 = @floatFromInt((i / 10) * 50);
-        try qt.insert(.{ .entity = @intCast(i), .x = x, .y = y });
-    }
+            try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
+            try qt.insert(.{ .entity = 2, .x = 50, .y = 50 });
+            try qt.insert(.{ .entity = 3, .x = 90, .y = 90 });
 
-    var result: std.ArrayListUnmanaged(QuadTreeNode) = .empty;
-    defer result.deinit(allocator);
+            const nearest = qt.queryNearest(12, 12, 100);
 
-    // Query top-left quadrant
-    try qt.query(.{ .x = 0, .y = 0, .width = 50, .height = 50 }, &result, allocator);
+            try expect.toBeTrue(nearest != null);
+            try expect.equal(nearest.?.entity, 1);
+        }
 
-    // Should find nodes in that region
-    try std.testing.expect(result.items.len > 0);
-}
+        test "returns null when no nodes within max_distance" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
+
+            const no_result = qt.queryNearest(12, 12, 1);
+
+            try expect.toBeTrue(no_result == null);
+        }
+    };
+
+    pub const clear = struct {
+        test "removes all nodes but retains tree structure" {
+            const allocator = std.testing.allocator;
+            var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            for (0..10) |i| {
+                try qt.insert(.{ .entity = @intCast(i), .x = @floatFromInt(i * 5), .y = @floatFromInt(i * 5) });
+            }
+
+            try expect.toBeTrue(qt.count() > 0);
+            try expect.toBeTrue(qt.children != null);
+
+            qt.clear();
+
+            try expect.equal(qt.count(), 0);
+            try expect.toBeTrue(qt.children != null);
+        }
+    };
+};

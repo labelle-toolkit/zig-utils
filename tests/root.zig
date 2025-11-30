@@ -1,7 +1,8 @@
 const std = @import("std");
 
+pub const vector_test = @import("vector_test.zig");
+pub const quad_tree_test = @import("quad_tree_test.zig");
+
 test {
-    std.testing.refAllDecls(@This());
-    _ = @import("vector_test.zig");
-    _ = @import("quad_tree_test.zig");
+    std.testing.refAllDeclsRecursive(@This());
 }
