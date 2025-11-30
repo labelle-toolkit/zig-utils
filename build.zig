@@ -21,13 +21,23 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    // Tests
+    // zspec dependency
+    const zspec = b.dependency("zspec", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Tests with zspec runner
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zspec", .module = zspec.module("zspec") },
+            },
         }),
+        .test_runner = .{ .path = zspec.path("src/runner.zig"), .mode = .simple },
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
