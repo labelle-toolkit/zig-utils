@@ -11,7 +11,3 @@ pub const Rectangle = quad_tree.Rectangle;
 
 // Convenience alias for Position (same as Vector2)
 pub const Position = Vector2;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

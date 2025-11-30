@@ -4,11 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Module for use as dependency
-    _ = b.addModule("zig_utils", .{
-        .root_source_file = b.path("src/root.zig"),
-    });
-
     // Static library for linking
     const lib = b.addLibrary(.{
         .linkage = .static,
@@ -27,14 +22,20 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // zig_utils module for tests
+    const zig_utils_module = b.addModule("zig_utils", .{
+        .root_source_file = b.path("src/root.zig"),
+    });
+
     // Tests with zspec runner
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
+            .root_source_file = b.path("tests/root.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zspec", .module = zspec.module("zspec") },
+                .{ .name = "zig_utils", .module = zig_utils_module },
             },
         }),
         .test_runner = .{ .path = zspec.path("src/runner.zig"), .mode = .simple },
