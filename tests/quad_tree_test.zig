@@ -264,4 +264,113 @@ pub const QuadTreeSpec = struct {
             try expect.toBeFalse(qt.hasPointInRect(.{ .x = 50, .y = 50, .width = 20, .height = 20 }));
         }
     };
+
+    pub const clear = struct {
+        test "removes all points and resets to original boundary" {
+            const allocator = std.testing.allocator;
+            const original_boundary = Rectangle{ .x = 0, .y = 0, .width = 100, .height = 100 };
+            var qt = try QT.init(allocator, original_boundary);
+            defer qt.deinit();
+
+            _ = qt.insert(Point.init(1, 10, 10));
+            _ = qt.insert(Point.init(2, 20, 20));
+            _ = qt.insert(Point.init(3, 30, 30));
+
+            try expect.equal(qt.count(), 3);
+
+            try qt.clear();
+
+            try expect.equal(qt.count(), 0);
+            try expect.equal(qt.original_boundary.x, original_boundary.x);
+            try expect.equal(qt.original_boundary.y, original_boundary.y);
+            try expect.equal(qt.original_boundary.width, original_boundary.width);
+            try expect.equal(qt.original_boundary.height, original_boundary.height);
+        }
+
+        test "allows inserting after clear" {
+            const allocator = std.testing.allocator;
+            var qt = try QT.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            _ = qt.insert(Point.init(1, 10, 10));
+            try qt.clear();
+            _ = qt.insert(Point.init(2, 50, 50));
+
+            try expect.equal(qt.count(), 1);
+
+            var result: std.ArrayListUnmanaged(Point) = .empty;
+            defer result.deinit(allocator);
+            try qt.queryRect(.{ .x = 45, .y = 45, .width = 10, .height = 10 }, &result);
+
+            try expect.equal(result.items.len, 1);
+            try expect.equal(result.items[0].id, 2);
+        }
+
+        test "clears subdivided tree correctly" {
+            const allocator = std.testing.allocator;
+            var qt = try QT.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            // Insert enough points to trigger subdivision (capacity is 4)
+            for (0..10) |i| {
+                _ = qt.insert(Point.init(@intCast(i), @floatFromInt(i * 9), @floatFromInt(i * 9)));
+            }
+            try expect.equal(qt.count(), 10);
+
+            try qt.clear();
+
+            try expect.equal(qt.count(), 0);
+
+            // Verify tree works correctly after clearing subdivided state
+            _ = qt.insert(Point.init(100, 50, 50));
+            try expect.equal(qt.count(), 1);
+
+            var result: std.ArrayListUnmanaged(Point) = .empty;
+            defer result.deinit(allocator);
+            try qt.queryRect(.{ .x = 0, .y = 0, .width = 100, .height = 100 }, &result);
+            try expect.equal(result.items.len, 1);
+        }
+    };
+
+    pub const resize = struct {
+        test "clears points and sets new boundary" {
+            const allocator = std.testing.allocator;
+            var qt = try QT.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            _ = qt.insert(Point.init(1, 10, 10));
+            _ = qt.insert(Point.init(2, 20, 20));
+
+            try expect.equal(qt.count(), 2);
+
+            const new_boundary = Rectangle{ .x = 50, .y = 50, .width = 200, .height = 200 };
+            try qt.resize(new_boundary);
+
+            try expect.equal(qt.count(), 0);
+            try expect.equal(qt.original_boundary.x, new_boundary.x);
+            try expect.equal(qt.original_boundary.y, new_boundary.y);
+            try expect.equal(qt.original_boundary.width, new_boundary.width);
+            try expect.equal(qt.original_boundary.height, new_boundary.height);
+        }
+
+        test "allows inserting in new boundary after resize" {
+            const allocator = std.testing.allocator;
+            var qt = try QT.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+            defer qt.deinit();
+
+            _ = qt.insert(Point.init(1, 10, 10));
+
+            try qt.resize(.{ .x = 100, .y = 100, .width = 100, .height = 100 });
+
+            // Old position should fail (outside new boundary)
+            const inserted_outside = qt.insert(Point.init(2, 10, 10));
+            try expect.toBeFalse(inserted_outside);
+
+            // New position should succeed (inside new boundary)
+            const inserted_inside = qt.insert(Point.init(3, 150, 150));
+            try expect.toBeTrue(inserted_inside);
+
+            try expect.equal(qt.count(), 1);
+        }
+    };
 };
