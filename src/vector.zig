@@ -171,8 +171,22 @@ pub const PositionI = struct {
         return .{ .x = -self.x, .y = -self.y };
     }
 
+    pub fn mul(self: PositionI, other: PositionI) PositionI {
+        return .{ .x = self.x * other.x, .y = self.y * other.y };
+    }
+
     pub fn eql(self: PositionI, other: PositionI) bool {
         return self.x == other.x and self.y == other.y;
+    }
+
+    pub fn lengthSquared(self: PositionI) i64 {
+        const x: i64 = self.x;
+        const y: i64 = self.y;
+        return x * x + y * y;
+    }
+
+    pub fn distanceSquared(self: PositionI, other: PositionI) i64 {
+        return self.sub(other).lengthSquared();
     }
 
     pub fn toPosition(self: PositionI) Position {
@@ -184,8 +198,8 @@ pub const PositionI = struct {
 
     pub fn fromPosition(pos: Position) PositionI {
         return .{
-            .x = @intFromFloat(pos.x),
-            .y = @intFromFloat(pos.y),
+            .x = @intFromFloat(@round(pos.x)),
+            .y = @intFromFloat(@round(pos.y)),
         };
     }
 
