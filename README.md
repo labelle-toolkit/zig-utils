@@ -19,7 +19,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_utils = .{
-        .url = "https://github.com/labelle-toolkit/zig-utils/archive/refs/tags/v0.4.0.tar.gz",
+        .url = "https://github.com/labelle-toolkit/zig-utils/archive/refs/tags/v0.5.0.tar.gz",
         .hash = "...",  // Run `zig build` to get the hash
     },
 },
@@ -175,7 +175,9 @@ Generic over ID type. Uses flat array storage for cache efficiency.
 | `queryNearest(pos, max_distance)` | Find closest point |
 | `hasPointInRect(range)` | Check if any point exists |
 | `count()` | Total number of points |
-| `reset()` | Clear keeping boundaries |
+| `clear()` | Clear all points, keep original boundary |
+| `resize(boundary)` | Clear and set new boundary |
+| `reset()` | Clear keeping computed boundaries |
 
 ### SweepAndPrune(T)
 
