@@ -1,14 +1,53 @@
-const std = @import("std");
+//! QuadTree spatial partitioning data structure
+//!
+//! Provides O(log n) spatial queries for points in 2D space.
+//! Used for efficient entity lookups and collision detection.
 
+const std = @import("std");
+const vector = @import("vector.zig");
+const Position = vector.Position;
+
+/// Axis-aligned bounding box
 pub const Rectangle = struct {
     x: f32,
     y: f32,
     width: f32,
     height: f32,
 
+    pub const zero = Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
+
+    /// Create a rectangle from position and size
+    pub fn fromPosition(pos: Position, width: f32, height: f32) Rectangle {
+        return .{ .x = pos.x, .y = pos.y, .width = width, .height = height };
+    }
+
+    /// Create a rectangle centered on a position
+    pub fn centered(pos: Position, width: f32, height: f32) Rectangle {
+        return .{
+            .x = pos.x - width / 2,
+            .y = pos.y - height / 2,
+            .width = width,
+            .height = height,
+        };
+    }
+
+    /// Get the center position
+    pub fn center(self: Rectangle) Position {
+        return .{ .x = self.x + self.width / 2, .y = self.y + self.height / 2 };
+    }
+
+    /// Get the top-left position
+    pub fn position(self: Rectangle) Position {
+        return .{ .x = self.x, .y = self.y };
+    }
+
     pub fn contains(self: Rectangle, px: f32, py: f32) bool {
         return px >= self.x and px < self.x + self.width and
             py >= self.y and py < self.y + self.height;
+    }
+
+    pub fn containsPosition(self: Rectangle, pos: Position) bool {
+        return self.contains(pos.x, pos.y);
     }
 
     pub fn intersects(self: Rectangle, other: Rectangle) bool {
@@ -19,193 +58,350 @@ pub const Rectangle = struct {
     }
 };
 
-pub const QuadTreeNode = struct {
-    entity: u32,
-    x: f32,
-    y: f32,
-};
+/// A point with an associated identifier
+pub fn EntityPoint(comptime T: type) type {
+    return struct {
+        id: T,
+        pos: Position,
 
-pub const QuadTree = struct {
-    allocator: std.mem.Allocator,
-    bounds: Rectangle,
-    nodes: std.ArrayListUnmanaged(QuadTreeNode) = .empty,
-    children: ?[4]*QuadTree = null,
-    max_nodes: usize = 8,
-    max_depth: usize = 8,
-    depth: usize = 0,
+        const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, bounds: Rectangle) QuadTree {
-        return .{
-            .allocator = allocator,
-            .bounds = bounds,
-            .nodes = .empty,
-        };
-    }
+        pub fn init(id: T, x: f32, y: f32) Self {
+            return .{ .id = id, .pos = .{ .x = x, .y = y } };
+        }
 
-    pub fn initWithDepth(allocator: std.mem.Allocator, bounds: Rectangle, depth: usize) QuadTree {
-        var qt = init(allocator, bounds);
-        qt.depth = depth;
-        return qt;
-    }
+        pub fn fromPosition(id: T, pos: Position) Self {
+            return .{ .id = id, .pos = pos };
+        }
+    };
+}
 
-    pub fn deinit(self: *QuadTree) void {
-        self.nodes.deinit(self.allocator);
-        if (self.children) |children| {
-            for (children) |child| {
-                child.deinit();
-                self.allocator.destroy(child);
+/// QuadTree node for internal storage
+fn QuadTreeNode(comptime T: type) type {
+    const Point = EntityPoint(T);
+
+    return struct {
+        total_elements: u32 = 0,
+        points: [4]Point = undefined,
+        boundary: Rectangle,
+        divided: bool = false,
+        nw: u32 = 0,
+        ne: u32 = 0,
+        sw: u32 = 0,
+        se: u32 = 0,
+    };
+}
+
+/// QuadTree for efficient spatial partitioning and queries
+///
+/// Generic over the ID type for flexibility (u32, u64, custom types)
+pub fn QuadTree(comptime T: type) type {
+    const Point = EntityPoint(T);
+    const Node = QuadTreeNode(T);
+
+    return struct {
+        const Self = @This();
+
+        nodes: std.ArrayListUnmanaged(Node),
+        capacity: u32 = 4,
+        gutter: f32 = 120.0,
+
+        lowest_x: f32 = 0.0,
+        lowest_y: f32 = 0.0,
+        highest_x: f32 = 0.0,
+        highest_y: f32 = 0.0,
+
+        allocator: std.mem.Allocator,
+
+        pub fn init(allocator: std.mem.Allocator, boundary: Rectangle) !Self {
+            var qt = Self{
+                .nodes = .empty,
+                .allocator = allocator,
+            };
+            try qt.nodes.append(allocator, .{ .boundary = boundary });
+            return qt;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.nodes.deinit(self.allocator);
+        }
+
+        /// Clear the tree and reset with new boundary computed from positions
+        pub fn resetWithBoundaries(self: *Self, positions: []const Position) !void {
+            self.nodes.clearRetainingCapacity();
+            self.lowest_x = std.math.inf(f32);
+            self.lowest_y = std.math.inf(f32);
+            self.highest_x = -std.math.inf(f32);
+            self.highest_y = -std.math.inf(f32);
+
+            for (positions) |pos| {
+                if (pos.x < self.lowest_x) self.lowest_x = pos.x;
+                if (pos.y < self.lowest_y) self.lowest_y = pos.y;
+                if (pos.x > self.highest_x) self.highest_x = pos.x;
+                if (pos.y > self.highest_y) self.highest_y = pos.y;
+            }
+
+            try self.nodes.append(self.allocator, .{ .boundary = .{
+                .x = self.lowest_x - self.gutter,
+                .y = self.lowest_y - self.gutter,
+                .width = (self.highest_x - self.lowest_x) + self.gutter * 2,
+                .height = (self.highest_y - self.lowest_y) + self.gutter * 2,
+            } });
+        }
+
+        /// Clear the tree keeping current boundaries
+        pub fn reset(self: *Self) !void {
+            const boundary = Rectangle{
+                .x = self.lowest_x - self.gutter,
+                .y = self.lowest_y - self.gutter,
+                .width = (self.highest_x - self.lowest_x) + self.gutter * 2,
+                .height = (self.highest_y - self.lowest_y) + self.gutter * 2,
+            };
+            self.nodes.clearRetainingCapacity();
+            self.lowest_x = std.math.inf(f32);
+            self.lowest_y = std.math.inf(f32);
+            self.highest_x = -std.math.inf(f32);
+            self.highest_y = -std.math.inf(f32);
+            try self.nodes.append(self.allocator, .{ .boundary = boundary });
+        }
+
+        /// Insert a point into the tree
+        pub fn insert(self: *Self, point: Point) bool {
+            if (point.pos.x < self.lowest_x) self.lowest_x = point.pos.x;
+            if (point.pos.y < self.lowest_y) self.lowest_y = point.pos.y;
+            if (point.pos.x > self.highest_x) self.highest_x = point.pos.x;
+            if (point.pos.y > self.highest_y) self.highest_y = point.pos.y;
+            return self.insertAt(point, 0);
+        }
+
+        /// Insert at position
+        pub fn insertAt(self: *Self, point: Point, node_idx: u32) bool {
+            if (!self.nodes.items[node_idx].boundary.containsPosition(point.pos)) {
+                return false;
+            }
+
+            if (self.nodes.items[node_idx].total_elements < self.capacity and !self.nodes.items[node_idx].divided) {
+                self.nodes.items[node_idx].points[self.nodes.items[node_idx].total_elements] = point;
+                self.nodes.items[node_idx].total_elements += 1;
+                return true;
+            }
+
+            if (!self.nodes.items[node_idx].divided) {
+                self.subdivide(node_idx) catch |err| {
+                    std.log.err("Error subdividing: {}\n", .{err});
+                    return false;
+                };
+            }
+
+            if (self.insertAt(point, self.nodes.items[node_idx].nw)) return true;
+            if (self.insertAt(point, self.nodes.items[node_idx].ne)) return true;
+            if (self.insertAt(point, self.nodes.items[node_idx].sw)) return true;
+            if (self.insertAt(point, self.nodes.items[node_idx].se)) return true;
+
+            return false;
+        }
+
+        fn subdivide(self: *Self, node_idx: u32) !void {
+            const boundary = self.nodes.items[node_idx].boundary;
+            const half_width = boundary.width / 2.0;
+            const half_height = boundary.height / 2.0;
+            const x = boundary.x;
+            const y = boundary.y;
+
+            self.nodes.items[node_idx].nw = @intCast(self.nodes.items.len);
+            try self.nodes.append(self.allocator, .{ .boundary = .{ .x = x, .y = y, .width = half_width, .height = half_height } });
+
+            self.nodes.items[node_idx].ne = @intCast(self.nodes.items.len);
+            try self.nodes.append(self.allocator, .{ .boundary = .{ .x = x + half_width, .y = y, .width = half_width, .height = half_height } });
+
+            self.nodes.items[node_idx].sw = @intCast(self.nodes.items.len);
+            try self.nodes.append(self.allocator, .{ .boundary = .{ .x = x, .y = y + half_height, .width = half_width, .height = half_height } });
+
+            self.nodes.items[node_idx].se = @intCast(self.nodes.items.len);
+            try self.nodes.append(self.allocator, .{ .boundary = .{ .x = x + half_width, .y = y + half_height, .width = half_width, .height = half_height } });
+
+            self.nodes.items[node_idx].divided = true;
+        }
+
+        /// Query all points within a rectangle
+        pub fn queryRect(self: *Self, range: Rectangle, buffer: *std.ArrayListUnmanaged(Point)) !void {
+            try self.queryRectAt(range, buffer, 0);
+        }
+
+        fn queryRectAt(self: *Self, range: Rectangle, buffer: *std.ArrayListUnmanaged(Point), node_idx: u32) !void {
+            if (!self.nodes.items[node_idx].boundary.intersects(range)) {
+                return;
+            }
+
+            for (0..self.nodes.items[node_idx].total_elements) |i| {
+                const p = self.nodes.items[node_idx].points[i];
+                if (range.containsPosition(p.pos)) {
+                    try buffer.append(self.allocator, p);
+                }
+            }
+
+            if (self.nodes.items[node_idx].divided) {
+                try self.queryRectAt(range, buffer, self.nodes.items[node_idx].nw);
+                try self.queryRectAt(range, buffer, self.nodes.items[node_idx].ne);
+                try self.queryRectAt(range, buffer, self.nodes.items[node_idx].sw);
+                try self.queryRectAt(range, buffer, self.nodes.items[node_idx].se);
             }
         }
-    }
 
-    pub fn clear(self: *QuadTree) void {
-        self.nodes.clearRetainingCapacity();
-        if (self.children) |children| {
-            for (children) |child| {
-                child.clear();
-            }
-        }
-    }
-
-    pub fn insert(self: *QuadTree, node: QuadTreeNode) !void {
-        if (!self.bounds.contains(node.x, node.y)) {
-            return;
+        /// Query all points within a radius of a center position
+        pub fn queryRadius(self: *Self, center: Position, radius: f32, buffer: *std.ArrayListUnmanaged(Point)) !void {
+            const range = Rectangle{
+                .x = center.x - radius,
+                .y = center.y - radius,
+                .width = radius * 2,
+                .height = radius * 2,
+            };
+            try self.queryRadiusAt(range, center, radius * radius, buffer, 0);
         }
 
-        if (self.children) |children| {
-            const index = self.getQuadrant(node.x, node.y);
-            try children[index].insert(node);
-            return;
-        }
-
-        try self.nodes.append(self.allocator, node);
-
-        if (self.nodes.items.len > self.max_nodes and self.depth < self.max_depth) {
-            if (self.children == null) {
-                try self.subdivide();
+        fn queryRadiusAt(self: *Self, range: Rectangle, center: Position, radius_sq: f32, buffer: *std.ArrayListUnmanaged(Point), node_idx: u32) !void {
+            if (!self.nodes.items[node_idx].boundary.intersects(range)) {
+                return;
             }
 
-            while (self.nodes.items.len > 0) {
-                const n = self.nodes.items[0];
-                const quadrant = self.getQuadrant(n.x, n.y);
-                try self.children.?[quadrant].insert(n);
-                _ = self.nodes.swapRemove(0);
+            for (0..self.nodes.items[node_idx].total_elements) |i| {
+                const p = self.nodes.items[node_idx].points[i];
+                if (p.pos.distanceSquared(center) <= radius_sq) {
+                    try buffer.append(self.allocator, p);
+                }
             }
-        }
-    }
 
-    pub fn query(self: *QuadTree, range: Rectangle, result: *std.ArrayListUnmanaged(QuadTreeNode), allocator: std.mem.Allocator) !void {
-        if (!self.bounds.intersects(range)) {
-            return;
-        }
-
-        for (self.nodes.items) |node| {
-            if (range.contains(node.x, node.y)) {
-                try result.append(allocator, node);
+            if (self.nodes.items[node_idx].divided) {
+                try self.queryRadiusAt(range, center, radius_sq, buffer, self.nodes.items[node_idx].nw);
+                try self.queryRadiusAt(range, center, radius_sq, buffer, self.nodes.items[node_idx].ne);
+                try self.queryRadiusAt(range, center, radius_sq, buffer, self.nodes.items[node_idx].sw);
+                try self.queryRadiusAt(range, center, radius_sq, buffer, self.nodes.items[node_idx].se);
             }
         }
 
-        if (self.children) |children| {
-            for (children) |child| {
-                try child.query(range, result, allocator);
-            }
-        }
-    }
-
-    pub fn queryNearest(self: *QuadTree, x: f32, y: f32, max_distance: f32) ?QuadTreeNode {
-        var nearest: ?QuadTreeNode = null;
-        var nearest_dist: f32 = max_distance;
-
-        self.findNearest(x, y, &nearest, &nearest_dist);
-        return nearest;
-    }
-
-    fn findNearest(self: *QuadTree, x: f32, y: f32, nearest: *?QuadTreeNode, nearest_dist: *f32) void {
-        for (self.nodes.items) |node| {
-            const dx = node.x - x;
-            const dy = node.y - y;
-            const dist = @sqrt(dx * dx + dy * dy);
-            if (dist < nearest_dist.*) {
-                nearest_dist.* = dist;
-                nearest.* = node;
-            }
+        /// Find the nearest point to a position within max_distance
+        pub fn queryNearest(self: *Self, pos: Position, max_distance: f32) ?Point {
+            var nearest: ?Point = null;
+            var nearest_dist: f32 = max_distance;
+            self.findNearestAt(pos, &nearest, &nearest_dist, 0);
+            return nearest;
         }
 
-        if (self.children) |children| {
-            for (children) |child| {
-                // Prune: skip children whose bounds are entirely farther than current nearest
-                if (child.minDistToBounds(x, y) < nearest_dist.*) {
-                    child.findNearest(x, y, nearest, nearest_dist);
+        fn findNearestAt(self: *Self, pos: Position, nearest: *?Point, nearest_dist: *f32, node_idx: u32) void {
+            // Check points in this node
+            for (0..self.nodes.items[node_idx].total_elements) |i| {
+                const p = self.nodes.items[node_idx].points[i];
+                const dist = p.pos.distance(pos);
+                if (dist < nearest_dist.*) {
+                    nearest_dist.* = dist;
+                    nearest.* = p;
+                }
+            }
+
+            // Check children with pruning
+            if (self.nodes.items[node_idx].divided) {
+                const children = [4]u32{
+                    self.nodes.items[node_idx].nw,
+                    self.nodes.items[node_idx].ne,
+                    self.nodes.items[node_idx].sw,
+                    self.nodes.items[node_idx].se,
+                };
+                for (children) |child_idx| {
+                    if (self.minDistToBounds(pos, child_idx) < nearest_dist.*) {
+                        self.findNearestAt(pos, nearest, nearest_dist, child_idx);
+                    }
                 }
             }
         }
-    }
 
-    fn minDistToBounds(self: *QuadTree, px: f32, py: f32) f32 {
-        // Find closest point on rectangle bounds to query point
-        const closest_x = std.math.clamp(px, self.bounds.x, self.bounds.x + self.bounds.width);
-        const closest_y = std.math.clamp(py, self.bounds.y, self.bounds.y + self.bounds.height);
+        fn minDistToBounds(self: *Self, pos: Position, node_idx: u32) f32 {
+            const bounds = self.nodes.items[node_idx].boundary;
+            const closest_x = std.math.clamp(pos.x, bounds.x, bounds.x + bounds.width);
+            const closest_y = std.math.clamp(pos.y, bounds.y, bounds.y + bounds.height);
+            const dx = closest_x - pos.x;
+            const dy = closest_y - pos.y;
+            return @sqrt(dx * dx + dy * dy);
+        }
 
-        const dx = closest_x - px;
-        const dy = closest_y - py;
-        return @sqrt(dx * dx + dy * dy);
-    }
+        /// Check if any point exists within a rectangle
+        pub fn hasPointInRect(self: *Self, range: Rectangle) bool {
+            return self.hasPointInRectAt(range, 0);
+        }
 
-    pub fn count(self: *QuadTree) usize {
-        var total = self.nodes.items.len;
-        if (self.children) |children| {
-            for (children) |child| {
-                total += child.count();
+        fn hasPointInRectAt(self: *Self, range: Rectangle, node_idx: u32) bool {
+            if (!self.nodes.items[node_idx].boundary.intersects(range)) {
+                return false;
             }
-        }
-        return total;
-    }
 
-    fn subdivide(self: *QuadTree) !void {
-        const half_w = self.bounds.width / 2;
-        const half_h = self.bounds.height / 2;
-        const x = self.bounds.x;
-        const y = self.bounds.y;
-
-        var children: [4]*QuadTree = undefined;
-        var allocated: usize = 0;
-
-        errdefer {
-            for (children[0..allocated]) |child| {
-                self.allocator.destroy(child);
+            for (0..self.nodes.items[node_idx].total_elements) |i| {
+                const p = self.nodes.items[node_idx].points[i];
+                if (range.containsPosition(p.pos)) {
+                    return true;
+                }
             }
+
+            if (self.nodes.items[node_idx].divided) {
+                if (self.hasPointInRectAt(range, self.nodes.items[node_idx].nw)) return true;
+                if (self.hasPointInRectAt(range, self.nodes.items[node_idx].ne)) return true;
+                if (self.hasPointInRectAt(range, self.nodes.items[node_idx].sw)) return true;
+                if (self.hasPointInRectAt(range, self.nodes.items[node_idx].se)) return true;
+            }
+
+            return false;
         }
 
-        children[0] = try self.allocator.create(QuadTree);
-        allocated = 1;
-        children[0].* = initWithDepth(self.allocator, .{ .x = x, .y = y, .width = half_w, .height = half_h }, self.depth + 1);
-
-        children[1] = try self.allocator.create(QuadTree);
-        allocated = 2;
-        children[1].* = initWithDepth(self.allocator, .{ .x = x + half_w, .y = y, .width = half_w, .height = half_h }, self.depth + 1);
-
-        children[2] = try self.allocator.create(QuadTree);
-        allocated = 3;
-        children[2].* = initWithDepth(self.allocator, .{ .x = x, .y = y + half_h, .width = half_w, .height = half_h }, self.depth + 1);
-
-        children[3] = try self.allocator.create(QuadTree);
-        allocated = 4;
-        children[3].* = initWithDepth(self.allocator, .{ .x = x + half_w, .y = y + half_h, .width = half_w, .height = half_h }, self.depth + 1);
-
-        self.children = children;
-    }
-
-    fn getQuadrant(self: *QuadTree, px: f32, py: f32) usize {
-        const mid_x = self.bounds.x + self.bounds.width / 2;
-        const mid_y = self.bounds.y + self.bounds.height / 2;
-
-        const top = py < mid_y;
-        const left = px < mid_x;
-
-        if (top) {
-            return if (left) 0 else 1;
-        } else {
-            return if (left) 2 else 3;
+        /// Remove a point by ID (searches entire tree)
+        pub fn remove(self: *Self, id: T) bool {
+            return self.removeAt(id, 0);
         }
-    }
-};
+
+        fn removeAt(self: *Self, id: T, node_idx: u32) bool {
+            var i: u32 = 0;
+            while (i < self.nodes.items[node_idx].total_elements) {
+                if (std.meta.eql(self.nodes.items[node_idx].points[i].id, id)) {
+                    self.nodes.items[node_idx].total_elements -= 1;
+                    if (i < self.nodes.items[node_idx].total_elements) {
+                        self.nodes.items[node_idx].points[i] = self.nodes.items[node_idx].points[self.nodes.items[node_idx].total_elements];
+                    }
+                    return true;
+                }
+                i += 1;
+            }
+
+            if (self.nodes.items[node_idx].divided) {
+                if (self.removeAt(id, self.nodes.items[node_idx].nw)) return true;
+                if (self.removeAt(id, self.nodes.items[node_idx].ne)) return true;
+                if (self.removeAt(id, self.nodes.items[node_idx].sw)) return true;
+                if (self.removeAt(id, self.nodes.items[node_idx].se)) return true;
+            }
+
+            return false;
+        }
+
+        /// Update position of an existing point
+        pub fn update(self: *Self, id: T, new_pos: Position) bool {
+            if (self.remove(id)) {
+                return self.insert(.{ .id = id, .pos = new_pos });
+            }
+            return false;
+        }
+
+        /// Count total points in the tree
+        pub fn count(self: *Self) usize {
+            return self.countAt(0);
+        }
+
+        fn countAt(self: *Self, node_idx: u32) usize {
+            var total: usize = self.nodes.items[node_idx].total_elements;
+
+            if (self.nodes.items[node_idx].divided) {
+                total += self.countAt(self.nodes.items[node_idx].nw);
+                total += self.countAt(self.nodes.items[node_idx].ne);
+                total += self.countAt(self.nodes.items[node_idx].sw);
+                total += self.countAt(self.nodes.items[node_idx].se);
+            }
+
+            return total;
+        }
+    };
+}

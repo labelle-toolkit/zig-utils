@@ -6,7 +6,8 @@ Standalone math utilities for Zig. Part of the [labelle-toolkit](https://github.
 
 - **Position** - 2D vector/position type with comprehensive math operations
 - **PositionI** - Integer position for pixel-perfect positioning
-- **QuadTree** - Spatial partitioning data structure for efficient 2D queries
+- **QuadTree** - Generic spatial partitioning with Position-based queries
+- **SweepAndPrune** - Broad-phase collision detection for AABBs
 - **Rectangle** - Axis-aligned bounding box with intersection/containment tests
 
 No external dependencies beyond the Zig standard library.
@@ -18,7 +19,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_utils = .{
-        .url = "https://github.com/labelle-toolkit/zig-utils/archive/refs/tags/v0.3.0.tar.gz",
+        .url = "https://github.com/labelle-toolkit/zig-utils/archive/refs/tags/v0.4.0.tar.gz",
         .hash = "...",  // Run `zig build` to get the hash
     },
 },
@@ -63,23 +64,68 @@ const back = PositionI.fromPosition(float_pos);  // Rounds to nearest
 
 ### QuadTree
 
+Generic spatial partitioning with Position-based API:
+
 ```zig
 const QuadTree = zig_utils.QuadTree;
-const Rectangle = zig_utils.Rectangle;
+const EntityPoint = zig_utils.EntityPoint;
 
-var qt = QuadTree.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
+// Create tree with u32 entity IDs
+const QT = QuadTree(u32);
+const Point = EntityPoint(u32);
+
+var qt = try QT.init(allocator, .{ .x = 0, .y = 0, .width = 100, .height = 100 });
 defer qt.deinit();
 
-try qt.insert(.{ .entity = 1, .x = 10, .y = 10 });
-try qt.insert(.{ .entity = 2, .x = 50, .y = 50 });
+// Insert using Position
+_ = qt.insert(Point.init(1, 10, 10));
+_ = qt.insert(Point.fromPosition(2, Position{ .x = 50, .y = 50 }));
 
-// Query a region
-var results: std.ArrayListUnmanaged(QuadTreeNode) = .empty;
+// Query rectangle
+var results: std.ArrayListUnmanaged(Point) = .empty;
 defer results.deinit(allocator);
-try qt.query(.{ .x = 0, .y = 0, .width = 30, .height = 30 }, &results, allocator);
+try qt.queryRect(.{ .x = 0, .y = 0, .width = 30, .height = 30 }, &results);
+
+// Query radius
+try qt.queryRadius(Position{ .x = 10, .y = 10 }, 15, &results);
 
 // Find nearest
-const nearest = qt.queryNearest(12, 12, 100);
+const nearest = qt.queryNearest(Position{ .x = 12, .y = 12 }, 100);
+
+// Update and remove
+_ = qt.update(1, Position{ .x = 20, .y = 20 });
+_ = qt.remove(1);
+```
+
+### Sweep and Prune
+
+Efficient broad-phase collision detection:
+
+```zig
+const SweepAndPrune = zig_utils.SweepAndPrune;
+
+const SAP = SweepAndPrune(u32);
+var sap = SAP.init(allocator);
+defer sap.deinit();
+
+// Add entities with position and half-extents
+try sap.add(1, Position{ .x = 0, .y = 0 }, 10, 10);
+try sap.add(2, Position{ .x = 5, .y = 5 }, 10, 10);
+try sap.add(3, Position{ .x = 100, .y = 100 }, 10, 10);
+
+// Find all collision pairs
+var pairs: std.ArrayListUnmanaged(SAP.Pair) = .empty;
+defer pairs.deinit(allocator);
+try sap.findCollisions(&pairs);
+// pairs contains (1, 2) since they overlap
+
+// Update positions
+sap.updatePosition(1, Position{ .x = 50, .y = 50 });
+
+// Query by region
+var in_region: std.ArrayListUnmanaged(u32) = .empty;
+try sap.queryRect(Position{ .x = 0, .y = 0 }, 30, 30, &in_region);
+try sap.queryRadius(Position{ .x = 0, .y = 0 }, 20, &in_region);
 ```
 
 ## API Reference
@@ -113,17 +159,51 @@ const nearest = qt.queryNearest(12, 12, 100);
 | `fromPosition` | Convert from Position with rounding |
 | `eql` | Equality test |
 
-### QuadTree
+### QuadTree(T)
+
+Generic over ID type. Uses flat array storage for cache efficiency.
 
 | Method | Description |
 |--------|-------------|
 | `init(allocator, bounds)` | Create a new QuadTree |
 | `deinit()` | Free all memory |
-| `insert(node)` | Add a node |
-| `query(range, results, allocator)` | Find nodes in rectangle |
-| `queryNearest(x, y, max_distance)` | Find closest node |
-| `clear()` | Remove all nodes, keep structure |
-| `count()` | Total number of nodes |
+| `insert(point)` | Add an entity point |
+| `remove(id)` | Remove by ID |
+| `update(id, new_pos)` | Update entity position |
+| `queryRect(range, buffer)` | Find points in rectangle |
+| `queryRadius(center, radius, buffer)` | Find points in radius |
+| `queryNearest(pos, max_distance)` | Find closest point |
+| `hasPointInRect(range)` | Check if any point exists |
+| `count()` | Total number of points |
+| `reset()` | Clear keeping boundaries |
+
+### SweepAndPrune(T)
+
+Generic over ID type. O(n log n) broad-phase collision detection.
+
+| Method | Description |
+|--------|-------------|
+| `init(allocator)` | Create a new system |
+| `deinit()` | Free all memory |
+| `add(id, pos, half_w, half_h)` | Add an entity |
+| `remove(id)` | Remove by ID |
+| `updatePosition(id, new_pos)` | Update entity position |
+| `findCollisions(pairs)` | Find all overlapping pairs |
+| `queryRect(center, half_w, half_h, results)` | Find entities in AABB |
+| `queryRadius(center, radius, results)` | Find entities in radius |
+| `clear()` | Remove all entities |
+
+### Rectangle
+
+| Method | Description |
+|--------|-------------|
+| `fromPosition(pos, w, h)` | Create from position |
+| `centered(pos, w, h)` | Create centered on position |
+| `center()` | Get center position |
+| `position()` | Get top-left position |
+| `contains(x, y)` | Point containment test |
+| `containsPosition(pos)` | Position containment test |
+| `intersects(other)` | AABB intersection test |
 
 ## Running Tests
 
