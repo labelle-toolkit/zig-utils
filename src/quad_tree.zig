@@ -119,6 +119,10 @@ pub fn QuadTree(comptime T: type) type {
                 .nodes = .empty,
                 .original_boundary = boundary,
                 .allocator = allocator,
+                .lowest_x = std.math.inf(f32),
+                .lowest_y = std.math.inf(f32),
+                .highest_x = -std.math.inf(f32),
+                .highest_y = -std.math.inf(f32),
             };
             try qt.nodes.append(allocator, .{ .boundary = boundary });
             return qt;
@@ -130,12 +134,7 @@ pub fn QuadTree(comptime T: type) type {
 
         /// Clear all points, keeping the original boundary from init()
         pub fn clear(self: *Self) !void {
-            self.nodes.clearRetainingCapacity();
-            self.lowest_x = std.math.inf(f32);
-            self.lowest_y = std.math.inf(f32);
-            self.highest_x = -std.math.inf(f32);
-            self.highest_y = -std.math.inf(f32);
-            try self.nodes.append(self.allocator, .{ .boundary = self.original_boundary });
+            try self.resize(self.original_boundary);
         }
 
         /// Resize the tree to a new boundary, clearing all points
