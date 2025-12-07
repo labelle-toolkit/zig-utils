@@ -111,12 +111,18 @@ pub fn QuadTree(comptime T: type) type {
         highest_x: f32 = 0.0,
         highest_y: f32 = 0.0,
 
+        original_boundary: Rectangle,
         allocator: std.mem.Allocator,
 
         pub fn init(allocator: std.mem.Allocator, boundary: Rectangle) !Self {
             var qt = Self{
                 .nodes = .empty,
+                .original_boundary = boundary,
                 .allocator = allocator,
+                .lowest_x = std.math.inf(f32),
+                .lowest_y = std.math.inf(f32),
+                .highest_x = -std.math.inf(f32),
+                .highest_y = -std.math.inf(f32),
             };
             try qt.nodes.append(allocator, .{ .boundary = boundary });
             return qt;
@@ -124,6 +130,22 @@ pub fn QuadTree(comptime T: type) type {
 
         pub fn deinit(self: *Self) void {
             self.nodes.deinit(self.allocator);
+        }
+
+        /// Clear all points, keeping the original boundary from init()
+        pub fn clear(self: *Self) !void {
+            try self.resize(self.original_boundary);
+        }
+
+        /// Resize the tree to a new boundary, clearing all points
+        pub fn resize(self: *Self, boundary: Rectangle) !void {
+            self.nodes.clearRetainingCapacity();
+            self.lowest_x = std.math.inf(f32);
+            self.lowest_y = std.math.inf(f32);
+            self.highest_x = -std.math.inf(f32);
+            self.highest_y = -std.math.inf(f32);
+            self.original_boundary = boundary;
+            try self.nodes.append(self.allocator, .{ .boundary = boundary });
         }
 
         /// Clear the tree and reset with new boundary computed from positions
