@@ -7,6 +7,7 @@ pub const PositionI = vector.PositionI;
 
 pub const quad_tree = @import("quad_tree.zig");
 pub const QuadTree = quad_tree.QuadTree;
+pub const QuadTreeConfig = quad_tree.QuadTreeConfig;
 pub const EntityPoint = quad_tree.EntityPoint;
 pub const Rectangle = quad_tree.Rectangle;
 
@@ -39,6 +40,7 @@ pub const FloydWarshall = floyd_warshall.FloydWarshall;
 
 pub const floyd_warshall_optimized = @import("floyd_warshall_optimized.zig");
 pub const FloydWarshallOptimized = floyd_warshall_optimized.FloydWarshallOptimized;
+pub const FloydWarshallConfig = floyd_warshall_optimized.Config;
 pub const FloydWarshallParallel = floyd_warshall_optimized.FloydWarshallParallel;
 pub const FloydWarshallSimd = floyd_warshall_optimized.FloydWarshallSimd;
 pub const FloydWarshallScalar = floyd_warshall_optimized.FloydWarshallScalar;

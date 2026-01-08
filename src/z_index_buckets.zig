@@ -1,30 +1,44 @@
 //! Z-Index Bucket Storage
 //!
-//! Maintains items sorted by z-index using 256 buckets (one per z-index level).
+//! Maintains items sorted by z-index using configurable buckets.
 //! This eliminates the need to re-sort the entire list when z-indices change.
 //!
 //! Complexity:
 //! - Insert: O(1) amortized
 //! - Remove: O(bucket_size) - typically small due to clustered z-indices
 //! - Change z-index: O(bucket_size)
-//! - Iteration: O(256 + n) ≈ O(n)
+//! - Iteration: O(bucket_count + n) ≈ O(n)
 
 const std = @import("std");
 
-/// Z-index bucket storage for efficient ordered iteration by u8 key.
-/// Generic over item type T.
-pub fn ZIndexBuckets(comptime T: type) type {
+/// Z-index bucket storage for efficient ordered iteration.
+/// Generic over:
+/// - T: item type
+/// - ZIndexType: unsigned integer type for z-index (u8, u16, etc.)
+///
+/// The number of buckets is determined by the max value of ZIndexType + 1.
+/// For u8: 256 buckets, for u4: 16 buckets, etc.
+pub fn ZIndexBuckets(comptime T: type, comptime ZIndexType: type) type {
+    comptime {
+        const info = @typeInfo(ZIndexType);
+        if (info != .int or info.int.signedness != .unsigned) {
+            @compileError("ZIndexType must be an unsigned integer type");
+        }
+    }
+
+    const bucket_count = std.math.maxInt(ZIndexType) + 1;
+
     return struct {
         const Self = @This();
         const Bucket = std.ArrayListUnmanaged(T);
 
-        buckets: [256]Bucket,
+        buckets: [bucket_count]Bucket,
         allocator: std.mem.Allocator,
         total_count: usize,
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return Self{
-                .buckets = [_]Bucket{.{}} ** 256,
+                .buckets = [_]Bucket{.{}} ** bucket_count,
                 .allocator = allocator,
                 .total_count = 0,
             };
@@ -37,14 +51,14 @@ pub fn ZIndexBuckets(comptime T: type) type {
         }
 
         /// Insert an item at the given z-index
-        pub fn insert(self: *Self, item: T, z: u8) !void {
+        pub fn insert(self: *Self, item: T, z: ZIndexType) !void {
             try self.buckets[z].append(self.allocator, item);
             self.total_count += 1;
         }
 
         /// Remove an item from the given z-index bucket using equality comparison.
         /// Returns true if the item was found and removed.
-        pub fn remove(self: *Self, item: T, z: u8) bool {
+        pub fn remove(self: *Self, item: T, z: ZIndexType) bool {
             const bucket = &self.buckets[z];
             for (bucket.items, 0..) |existing, i| {
                 if (eql(existing, item)) {
@@ -58,7 +72,7 @@ pub fn ZIndexBuckets(comptime T: type) type {
 
         /// Change an item's z-index from old_z to new_z
         /// Returns error if the item was not found at old_z
-        pub fn changeZIndex(self: *Self, item: T, old_z: u8, new_z: u8) !void {
+        pub fn changeZIndex(self: *Self, item: T, old_z: ZIndexType, new_z: ZIndexType) !void {
             if (old_z == new_z) return;
             const removed = self.remove(item, old_z);
             if (!removed) {
@@ -80,14 +94,14 @@ pub fn ZIndexBuckets(comptime T: type) type {
             self.total_count = 0;
         }
 
-        /// Iterator that yields items in z-index order (0 to 255)
+        /// Iterator that yields items in z-index order (0 to max)
         pub fn iterator(self: *const Self) Iterator {
             return Iterator.init(self);
         }
 
         pub const Iterator = struct {
-            buckets: *const [256]Bucket,
-            z: u16,
+            buckets: *const [bucket_count]Bucket,
+            z: usize,
             idx: usize,
 
             pub fn init(storage: *const Self) Iterator {
@@ -101,7 +115,7 @@ pub fn ZIndexBuckets(comptime T: type) type {
             }
 
             pub fn next(self: *Iterator) ?T {
-                while (self.z < 256) {
+                while (self.z < bucket_count) {
                     const bucket = &self.buckets[self.z];
                     if (self.idx < bucket.items.len) {
                         const item = bucket.items[self.idx];
@@ -115,7 +129,7 @@ pub fn ZIndexBuckets(comptime T: type) type {
             }
 
             fn skipEmptyBuckets(self: *Iterator) void {
-                while (self.z < 256 and self.buckets[self.z].items.len == 0) {
+                while (self.z < bucket_count and self.buckets[self.z].items.len == 0) {
                     self.z += 1;
                 }
             }
@@ -142,8 +156,9 @@ pub fn ZIndexBuckets(comptime T: type) type {
 
         /// Equality comparison for items
         fn eql(a: T, b: T) bool {
-            // Use eql method if available, otherwise use ==
-            if (@hasDecl(T, "eql")) {
+            // Use eql method if available (for structs), otherwise use std.meta.eql
+            const info = @typeInfo(T);
+            if (info == .@"struct" and @hasDecl(T, "eql")) {
                 return a.eql(b);
             } else {
                 return std.meta.eql(a, b);
@@ -156,7 +171,7 @@ pub fn ZIndexBuckets(comptime T: type) type {
 test "ZIndexBuckets basic operations" {
     const allocator = std.testing.allocator;
 
-    var buckets = ZIndexBuckets(u32).init(allocator);
+    var buckets = ZIndexBuckets(u32, u8).init(allocator);
     defer buckets.deinit();
 
     // Insert
@@ -195,7 +210,7 @@ test "ZIndexBuckets with struct items" {
         }
     };
 
-    var buckets = ZIndexBuckets(Item).init(allocator);
+    var buckets = ZIndexBuckets(Item, u8).init(allocator);
     defer buckets.deinit();
 
     try buckets.insert(.{ .id = 1, .name = "first" }, 10);
@@ -206,4 +221,24 @@ test "ZIndexBuckets with struct items" {
     // Remove by id (uses eql method)
     try std.testing.expect(buckets.remove(.{ .id = 1, .name = "" }, 10));
     try std.testing.expectEqual(@as(usize, 1), buckets.count());
+}
+
+test "ZIndexBuckets with smaller z-index type" {
+    const allocator = std.testing.allocator;
+
+    // Only 16 buckets with u4
+    var buckets = ZIndexBuckets(u32, u4).init(allocator);
+    defer buckets.deinit();
+
+    try buckets.insert(100, 0);
+    try buckets.insert(200, 15); // max u4 value
+    try buckets.insert(300, 8);
+
+    try std.testing.expectEqual(@as(usize, 3), buckets.count());
+
+    var iter = buckets.iterator();
+    try std.testing.expectEqual(@as(?u32, 100), iter.next()); // z=0
+    try std.testing.expectEqual(@as(?u32, 300), iter.next()); // z=8
+    try std.testing.expectEqual(@as(?u32, 200), iter.next()); // z=15
+    try std.testing.expectEqual(@as(?u32, null), iter.next());
 }

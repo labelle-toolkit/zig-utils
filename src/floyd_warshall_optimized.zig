@@ -18,6 +18,11 @@ pub const Config = struct {
     parallel: bool = true,
     /// Enable SIMD vectorization
     simd: bool = true,
+    /// SIMD vector width (elements per vector operation)
+    /// - 4: 128-bit vectors (SSE, NEON) - widely supported
+    /// - 8: 256-bit vectors (AVX2)
+    /// - 16: 512-bit vectors (AVX-512)
+    vector_width: comptime_int = 4,
 };
 
 /// Optimized Floyd-Warshall all-pairs shortest path algorithm.
@@ -26,8 +31,8 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
     return struct {
         const Self = @This();
 
-        // SIMD vector width (4 x u32 = 128 bits, widely supported)
-        const VectorWidth = 4;
+        // SIMD vector configuration
+        const VectorWidth = config.vector_width;
         const DistVector = @Vector(VectorWidth, u32);
         const IndexVector = @Vector(VectorWidth, u32);
 

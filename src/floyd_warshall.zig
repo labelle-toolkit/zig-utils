@@ -12,199 +12,217 @@
 
 const std = @import("std");
 
-const INF = std.math.maxInt(u32);
-
 /// Floyd-Warshall all-pairs shortest path algorithm.
+/// Generic over DistanceType for memory efficiency.
 /// Supports both direct vertex indices and entity ID mapping.
-pub const FloydWarshall = struct {
-    const RowList = std.array_list.Managed(u64);
-    const GraphList = std.array_list.Managed(RowList);
-
-    size: u32 = 100,
-    graph: GraphList,
-    path: GraphList,
-    ids: std.AutoHashMap(u32, u32),
-    last_key: u32 = 0,
-    allocator: std.mem.Allocator,
-
-    pub fn init(allocator: std.mem.Allocator) FloydWarshall {
-        return .{
-            .graph = GraphList.init(allocator),
-            .path = GraphList.init(allocator),
-            .ids = std.AutoHashMap(u32, u32).init(allocator),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *FloydWarshall) void {
-        for (self.graph.items) |*row| {
-            row.deinit();
+pub fn FloydWarshall(comptime DistanceType: type) type {
+    comptime {
+        const info = @typeInfo(DistanceType);
+        if (info != .int or info.int.signedness != .unsigned) {
+            @compileError("DistanceType must be an unsigned integer type");
         }
-        for (self.path.items) |*row| {
-            row.deinit();
-        }
-        self.graph.deinit();
-        self.path.deinit();
-        self.ids.deinit();
     }
 
-    /// Generate a new internal key for entity mapping
-    pub fn newKey(self: *FloydWarshall) u32 {
-        self.last_key += 1;
-        return self.last_key - 1;
-    }
+    const INF = std.math.maxInt(DistanceType);
 
-    /// Add an edge between two vertices with given weight (direct index)
-    pub fn addEdge(self: *FloydWarshall, u: u32, v: u32, w: u64) void {
-        self.graph.items[u].items[v] = w;
-    }
+    return struct {
+        const Self = @This();
+        const RowList = std.array_list.Managed(DistanceType);
+        const GraphList = std.array_list.Managed(RowList);
 
-    /// Get the distance between two vertices (direct index)
-    pub fn value(self: *FloydWarshall, u: usize, v: usize) u64 {
-        return self.graph.items[u].items[v];
-    }
+        size: u32 = 100,
+        graph: GraphList,
+        path: GraphList,
+        ids: std.AutoHashMap(u32, u32),
+        last_key: u32 = 0,
+        allocator: std.mem.Allocator,
 
-    /// Check if a path exists between two vertices (direct index)
-    pub fn hasPath(self: *FloydWarshall, u: usize, v: usize) bool {
-        return self.graph.items[u].items[v] != INF;
-    }
-
-    /// Get the next vertex in the shortest path from u to v (direct index)
-    pub fn next(self: *FloydWarshall, u: usize, v: usize) u32 {
-        return @intCast(self.path.items[u].items[v]);
-    }
-
-    /// Resize the graph to support a given number of vertices
-    pub fn resize(self: *FloydWarshall, size: u32) void {
-        self.size = size;
-    }
-
-    /// Add an edge using entity ID mapping (auto-assigns internal indices)
-    pub fn addEdgeWithMapping(self: *FloydWarshall, u: u32, v: u32, w: u64) void {
-        if (!self.ids.contains(u)) {
-            self.ids.put(u, self.newKey()) catch |err| {
-                std.log.err("Error inserting on map: {}\n", .{err});
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{
+                .graph = GraphList.init(allocator),
+                .path = GraphList.init(allocator),
+                .ids = std.AutoHashMap(u32, u32).init(allocator),
+                .allocator = allocator,
             };
         }
-        if (!self.ids.contains(v)) {
-            self.ids.put(v, self.newKey()) catch |err| {
-                std.log.err("Error inserting on map: {}\n", .{err});
-            };
-        }
-        self.addEdge(self.ids.get(u).?, self.ids.get(v).?, w);
-    }
 
-    /// Get the distance between two entities (using ID mapping)
-    pub fn valueWithMapping(self: *FloydWarshall, u: u32, v: u32) u64 {
-        return self.value(self.ids.get(u).?, self.ids.get(v).?);
-    }
-
-    /// Build the path from u to v and store in the provided ArrayList
-    pub fn setPathWithMapping(self: *FloydWarshall, path_list: *std.array_list.Managed(u32), u_node: u32, v_node: u32) !void {
-        var current = u_node;
-        while (current != v_node) {
-            try path_list.append(current);
-            current = self.nextWithMapping(current, v_node);
-            if (current == INF) {
-                std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
-                return;
+        pub fn deinit(self: *Self) void {
+            for (self.graph.items) |*row| {
+                row.deinit();
             }
-        }
-        try path_list.append(v_node);
-    }
-
-    /// Build the path from u to v and store in the provided unmanaged ArrayList
-    pub fn setPathWithMappingUnmanaged(self: *FloydWarshall, allocator: std.mem.Allocator, path_list: *std.ArrayListUnmanaged(u32), u_node: u32, v_node: u32) !void {
-        var current = u_node;
-        while (current != v_node) {
-            try path_list.append(allocator, current);
-            current = self.nextWithMapping(current, v_node);
-            if (current == INF) {
-                std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
-                return;
+            for (self.path.items) |*row| {
+                row.deinit();
             }
+            self.graph.deinit();
+            self.path.deinit();
+            self.ids.deinit();
         }
-        try path_list.append(allocator, v_node);
-    }
 
-    /// Get the next entity in the shortest path from u to v (using ID mapping)
-    pub fn nextWithMapping(self: *FloydWarshall, u: u32, v: u32) u32 {
-        const val = self.next(self.ids.get(u).?, self.ids.get(v).?);
-        var result = self.ids.iterator();
-        while (result.next()) |entry| {
-            if (entry.value_ptr.* == val) {
-                return entry.key_ptr.*;
+        /// Generate a new internal key for entity mapping
+        pub fn newKey(self: *Self) u32 {
+            self.last_key += 1;
+            return self.last_key - 1;
+        }
+
+        /// Add an edge between two vertices with given weight (direct index)
+        pub fn addEdge(self: *Self, u: u32, v: u32, w: DistanceType) void {
+            self.graph.items[u].items[v] = w;
+        }
+
+        /// Get the distance between two vertices (direct index)
+        pub fn value(self: *Self, u: usize, v: usize) DistanceType {
+            return self.graph.items[u].items[v];
+        }
+
+        /// Check if a path exists between two vertices (direct index)
+        pub fn hasPath(self: *Self, u: usize, v: usize) bool {
+            return self.graph.items[u].items[v] != INF;
+        }
+
+        /// Get the next vertex in the shortest path from u to v (direct index)
+        pub fn next(self: *Self, u: usize, v: usize) u32 {
+            return @intCast(self.path.items[u].items[v]);
+        }
+
+        /// Resize the graph to support a given number of vertices
+        pub fn resize(self: *Self, size: u32) void {
+            self.size = size;
+        }
+
+        /// Add an edge using entity ID mapping (auto-assigns internal indices)
+        pub fn addEdgeWithMapping(self: *Self, u: u32, v: u32, w: DistanceType) void {
+            if (!self.ids.contains(u)) {
+                self.ids.put(u, self.newKey()) catch |err| {
+                    std.log.err("Error inserting on map: {}\n", .{err});
+                };
             }
-        }
-        return INF;
-    }
-
-    /// Check if a path exists between two entities (using ID mapping)
-    pub fn hasPathWithMapping(self: *FloydWarshall, u: u32, v: u32) bool {
-        if (self.ids.get(u) == null or self.ids.get(v) == null) {
-            return false;
-        }
-        return self.hasPath(self.ids.get(u).?, self.ids.get(v).?);
-    }
-
-    /// Reset the graph and prepare for new data
-    pub fn clean(self: *FloydWarshall) !void {
-        self.last_key = 0;
-        for (self.graph.items) |*row| {
-            row.deinit();
-        }
-        for (self.path.items) |*row| {
-            row.deinit();
-        }
-        self.graph.clearRetainingCapacity();
-        self.path.clearRetainingCapacity();
-        self.ids.clearRetainingCapacity();
-
-        // Initialize adjacency matrix and path matrix
-        for (0..self.size) |_| {
-            var list = RowList.init(self.allocator);
-            var row_path = RowList.init(self.allocator);
-            for (0..self.size) |_| {
-                try list.append(0);
-                try row_path.append(0);
+            if (!self.ids.contains(v)) {
+                self.ids.put(v, self.newKey()) catch |err| {
+                    std.log.err("Error inserting on map: {}\n", .{err});
+                };
             }
-            try self.graph.append(list);
-            try self.path.append(row_path);
+            self.addEdge(self.ids.get(u).?, self.ids.get(v).?, w);
         }
 
-        // Set initial values: 0 for self-loops, INF for no edge
-        for (0..self.size) |i| {
-            for (0..self.size) |j| {
-                self.path.items[i].items[j] = j;
-                if (i == j) {
-                    self.graph.items[i].items[j] = 0;
-                } else {
-                    self.graph.items[i].items[j] = INF;
+        /// Get the distance between two entities (using ID mapping)
+        pub fn valueWithMapping(self: *Self, u: u32, v: u32) DistanceType {
+            return self.value(self.ids.get(u).?, self.ids.get(v).?);
+        }
+
+        /// Build the path from u to v and store in the provided ArrayList
+        pub fn setPathWithMapping(self: *Self, path_list: *std.array_list.Managed(u32), u_node: u32, v_node: u32) !void {
+            var current = u_node;
+            while (current != v_node) {
+                try path_list.append(current);
+                current = self.nextWithMapping(current, v_node);
+                if (current == std.math.maxInt(u32)) {
+                    std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
+                    return;
                 }
             }
+            try path_list.append(v_node);
         }
-    }
 
-    /// Run the Floyd-Warshall algorithm to compute all shortest paths
-    pub fn generate(self: *FloydWarshall) void {
-        for (0..self.size) |k| {
+        /// Build the path from u to v and store in the provided unmanaged ArrayList
+        pub fn setPathWithMappingUnmanaged(self: *Self, allocator: std.mem.Allocator, path_list: *std.ArrayListUnmanaged(u32), u_node: u32, v_node: u32) !void {
+            var current = u_node;
+            while (current != v_node) {
+                try path_list.append(allocator, current);
+                current = self.nextWithMapping(current, v_node);
+                if (current == std.math.maxInt(u32)) {
+                    std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
+                    return;
+                }
+            }
+            try path_list.append(allocator, v_node);
+        }
+
+        /// Get the next entity in the shortest path from u to v (using ID mapping)
+        pub fn nextWithMapping(self: *Self, u: u32, v: u32) u32 {
+            const val = self.next(self.ids.get(u).?, self.ids.get(v).?);
+            var result = self.ids.iterator();
+            while (result.next()) |entry| {
+                if (entry.value_ptr.* == val) {
+                    return entry.key_ptr.*;
+                }
+            }
+            return std.math.maxInt(u32);
+        }
+
+        /// Check if a path exists between two entities (using ID mapping)
+        pub fn hasPathWithMapping(self: *Self, u: u32, v: u32) bool {
+            if (self.ids.get(u) == null or self.ids.get(v) == null) {
+                return false;
+            }
+            return self.hasPath(self.ids.get(u).?, self.ids.get(v).?);
+        }
+
+        /// Reset the graph and prepare for new data
+        pub fn clean(self: *Self) !void {
+            self.last_key = 0;
+            for (self.graph.items) |*row| {
+                row.deinit();
+            }
+            for (self.path.items) |*row| {
+                row.deinit();
+            }
+            self.graph.clearRetainingCapacity();
+            self.path.clearRetainingCapacity();
+            self.ids.clearRetainingCapacity();
+
+            // Initialize adjacency matrix and path matrix
+            for (0..self.size) |_| {
+                var list = RowList.init(self.allocator);
+                var row_path = RowList.init(self.allocator);
+                for (0..self.size) |_| {
+                    try list.append(0);
+                    try row_path.append(0);
+                }
+                try self.graph.append(list);
+                try self.path.append(row_path);
+            }
+
+            // Set initial values: 0 for self-loops, INF for no edge
             for (0..self.size) |i| {
                 for (0..self.size) |j| {
-                    if (self.graph.items[i].items[k] + self.graph.items[k].items[j] < self.graph.items[i].items[j]) {
-                        self.graph.items[i].items[j] = self.graph.items[i].items[k] + self.graph.items[k].items[j];
-                        self.path.items[i].items[j] = self.path.items[i].items[k];
+                    self.path.items[i].items[j] = @intCast(j);
+                    if (i == j) {
+                        self.graph.items[i].items[j] = 0;
+                    } else {
+                        self.graph.items[i].items[j] = INF;
                     }
                 }
             }
         }
-    }
-};
+
+        /// Run the Floyd-Warshall algorithm to compute all shortest paths
+        pub fn generate(self: *Self) void {
+            for (0..self.size) |k| {
+                for (0..self.size) |i| {
+                    const dist_ik = self.graph.items[i].items[k];
+                    if (dist_ik == INF) continue; // Skip if no path to k
+
+                    for (0..self.size) |j| {
+                        const dist_kj = self.graph.items[k].items[j];
+                        if (dist_kj == INF) continue; // Skip if no path from k
+
+                        const new_dist = dist_ik +| dist_kj; // Saturating add
+                        if (new_dist < self.graph.items[i].items[j]) {
+                            self.graph.items[i].items[j] = new_dist;
+                            self.path.items[i].items[j] = self.path.items[i].items[k];
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
 
 // Tests
 test "FloydWarshall basic functionality" {
     const allocator = std.testing.allocator;
 
-    var fw = FloydWarshall.init(allocator);
+    var fw = FloydWarshall(u64).init(allocator);
     defer fw.deinit();
 
     fw.resize(4);
@@ -231,7 +249,7 @@ test "FloydWarshall basic functionality" {
 test "FloydWarshall weighted shortest path" {
     const allocator = std.testing.allocator;
 
-    var fw = FloydWarshall.init(allocator);
+    var fw = FloydWarshall(u64).init(allocator);
     defer fw.deinit();
 
     fw.resize(4);
@@ -250,4 +268,22 @@ test "FloydWarshall weighted shortest path" {
     // Should find shortest path
     try std.testing.expectEqual(@as(u64, 4), fw.value(0, 3));
     try std.testing.expectEqual(@as(u32, 2), fw.next(0, 3)); // Goes through node 2
+}
+
+test "FloydWarshall with u32 distances" {
+    const allocator = std.testing.allocator;
+
+    // Use u32 for smaller memory footprint
+    var fw = FloydWarshall(u32).init(allocator);
+    defer fw.deinit();
+
+    fw.resize(3);
+    try fw.clean();
+
+    fw.addEdge(0, 1, 10);
+    fw.addEdge(1, 2, 20);
+
+    fw.generate();
+
+    try std.testing.expectEqual(@as(u32, 30), fw.value(0, 2));
 }
