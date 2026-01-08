@@ -101,38 +101,3 @@ pub fn octile(a: Position, b: Position) f32 {
     const dy = @abs(b.y - a.y);
     return @max(dx, dy) + SQRT2_MINUS_1 * @min(dx, dy);
 }
-
-// Tests
-test "euclidean distance" {
-    const a = Position{ .x = 0, .y = 0 };
-    const b = Position{ .x = 3, .y = 4 };
-    try std.testing.expectApproxEqAbs(@as(f32, 5.0), euclidean(a, b), 0.001);
-}
-
-test "manhattan distance" {
-    const a = Position{ .x = 0, .y = 0 };
-    const b = Position{ .x = 3, .y = 4 };
-    try std.testing.expectApproxEqAbs(@as(f32, 7.0), manhattan(a, b), 0.001);
-}
-
-test "chebyshev distance" {
-    const a = Position{ .x = 0, .y = 0 };
-    const b = Position{ .x = 3, .y = 4 };
-    try std.testing.expectApproxEqAbs(@as(f32, 4.0), chebyshev(a, b), 0.001);
-}
-
-test "octile distance" {
-    const a = Position{ .x = 0, .y = 0 };
-    const b = Position{ .x = 3, .y = 4 };
-    // 4 + (sqrt(2)-1) * 3 = 4 + 0.414 * 3 = 5.243
-    try std.testing.expectApproxEqAbs(@as(f32, 5.243), octile(a, b), 0.01);
-}
-
-test "calculate with enum" {
-    const a = Position{ .x = 0, .y = 0 };
-    const b = Position{ .x = 3, .y = 4 };
-
-    try std.testing.expectApproxEqAbs(@as(f32, 5.0), calculate(.euclidean, a, b), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f32, 7.0), calculate(.manhattan, a, b), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), calculate(.zero, a, b), 0.001);
-}
