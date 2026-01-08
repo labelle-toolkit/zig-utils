@@ -16,5 +16,8 @@ pub const AABB = sweep_and_prune.AABB;
 pub const CollisionPair = sweep_and_prune.CollisionPair;
 pub const sweepAndPruneSimple = sweep_and_prune.sweepAndPrune;
 
+pub const sparse_set = @import("sparse_set.zig");
+pub const SparseSet = sparse_set.SparseSet;
+
 // Backwards compatibility alias (deprecated)
 pub const Vector2 = Position;

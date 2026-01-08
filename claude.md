@@ -10,6 +10,7 @@ src/
   vector.zig         - Position and PositionI types
   quad_tree.zig      - QuadTree spatial partitioning (generic, Position-based)
   sweep_and_prune.zig - Sweep and Prune collision detection
+  sparse_set.zig     - SparseSet O(1) key-value mapping
 tests/
   root.zig               - Test entry point
   vector_test.zig        - Position/PositionI tests
@@ -23,6 +24,7 @@ tests/
 - `PositionI` (i32) - Integer position for pixel-perfect work
 - `QuadTree(T)` - Generic spatial index with Position-based queries
 - `SweepAndPrune(T)` - Generic broad-phase collision detection
+- `SparseSet(T)` - O(1) key-value mapping with cache-friendly iteration
 - `Rectangle` - AABB for bounds and collision
 - `EntityPoint(T)` - Point with generic ID for QuadTree
 - `AABB` - Axis-aligned bounding box for SweepAndPrune
@@ -58,6 +60,20 @@ zig build test
 - Sort on X-axis, prune on Y
 - Generic ID type support
 - Position-based AABB queries
+
+### SparseSet
+- O(1) insert, remove, lookup (worst-case, not amortized)
+- Cache-friendly dense array iteration
+- Generic value type support
+- Fixed memory based on max key range
+- Ideal for entity -> component mappings
+
+**Benchmark results (vs HashMap):**
+| Operation | SparseSet | HashMap |
+|-----------|-----------|---------|
+| contains  | 0.76 ns   | 4.61 ns |
+
+**Trade-off:** ~40KB memory for 10k max keys vs variable for HashMap
 
 ## Related
 
