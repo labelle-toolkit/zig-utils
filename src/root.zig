@@ -1,4 +1,4 @@
-// zig-utils - Standalone math utilities for Zig
+// zig-utils - Standalone utilities for Zig
 // No external dependencies, only std
 
 pub const vector = @import("vector.zig");
@@ -18,6 +18,20 @@ pub const sweepAndPruneSimple = sweep_and_prune.sweepAndPrune;
 
 pub const sparse_set = @import("sparse_set.zig");
 pub const SparseSet = sparse_set.SparseSet;
+
+pub const z_index_buckets = @import("z_index_buckets.zig");
+pub const ZIndexBuckets = z_index_buckets.ZIndexBuckets;
+
+pub const zon = @import("zon_coercion.zig");
+pub const coerceValue = zon.coerceValue;
+pub const buildStruct = zon.buildStruct;
+pub const tupleToSlice = zon.tupleToSlice;
+pub const mergeStructs = zon.mergeStructs;
+
+pub const hooks = @import("hook_dispatcher.zig");
+pub const HookDispatcher = hooks.HookDispatcher;
+pub const EmptyDispatcher = hooks.EmptyDispatcher;
+pub const MergeHooks = hooks.MergeHooks;
 
 // Backwards compatibility alias (deprecated)
 pub const Vector2 = Position;
