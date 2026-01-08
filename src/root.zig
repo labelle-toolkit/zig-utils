@@ -33,5 +33,21 @@ pub const HookDispatcher = hooks.HookDispatcher;
 pub const EmptyDispatcher = hooks.EmptyDispatcher;
 pub const MergeHooks = hooks.MergeHooks;
 
+// Graph algorithms
+pub const floyd_warshall = @import("floyd_warshall.zig");
+pub const FloydWarshall = floyd_warshall.FloydWarshall;
+
+pub const floyd_warshall_optimized = @import("floyd_warshall_optimized.zig");
+pub const FloydWarshallOptimized = floyd_warshall_optimized.FloydWarshallOptimized;
+pub const FloydWarshallParallel = floyd_warshall_optimized.FloydWarshallParallel;
+pub const FloydWarshallSimd = floyd_warshall_optimized.FloydWarshallSimd;
+pub const FloydWarshallScalar = floyd_warshall_optimized.FloydWarshallScalar;
+
+pub const a_star = @import("a_star.zig");
+pub const AStar = a_star.AStar;
+
+pub const heuristics = @import("heuristics.zig");
+pub const Heuristic = heuristics.Heuristic;
+
 // Backwards compatibility alias (deprecated)
 pub const Vector2 = Position;
