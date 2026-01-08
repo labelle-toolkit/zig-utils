@@ -68,12 +68,20 @@ pub fn AStar(comptime WeightType: type) type {
         custom_heuristic: ?HeuristicFn,
 
         pub fn init(allocator: std.mem.Allocator) !Self {
+            var positions = try SparseSet(u32, Position).init(allocator, 1024, 64);
+            errdefer positions.deinit();
+
+            var ids = try SparseSet(u32, u32).init(allocator, 1024, 64);
+            errdefer ids.deinit();
+
+            const reverse_ids = try SparseSet(u32, u32).init(allocator, 1024, 64);
+
             return .{
                 .allocator = allocator,
                 .adjacency = .empty,
-                .positions = try SparseSet(u32, Position).init(allocator, 1024, 64),
-                .ids = try SparseSet(u32, u32).init(allocator, 1024, 64),
-                .reverse_ids = try SparseSet(u32, u32).init(allocator, 1024, 64),
+                .positions = positions,
+                .ids = ids,
+                .reverse_ids = reverse_ids,
                 .heuristic_type = .euclidean,
                 .custom_heuristic = null,
             };

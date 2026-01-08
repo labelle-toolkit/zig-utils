@@ -71,14 +71,29 @@ pub fn ZIndexBuckets(comptime T: type, comptime ZIndexType: type) type {
         }
 
         /// Change an item's z-index from old_z to new_z
-        /// Returns error if the item was not found at old_z
+        /// Returns error if the item was not found at old_z or allocation fails
         pub fn changeZIndex(self: *Self, item: T, old_z: ZIndexType, new_z: ZIndexType) !void {
             if (old_z == new_z) return;
-            const removed = self.remove(item, old_z);
-            if (!removed) {
+
+            // First verify item exists at old_z before making any changes
+            const bucket = &self.buckets[old_z];
+            var found_index: ?usize = null;
+            for (bucket.items, 0..) |existing, i| {
+                if (eql(existing, item)) {
+                    found_index = i;
+                    break;
+                }
+            }
+            if (found_index == null) {
                 return error.ItemNotFound;
             }
-            try self.insert(item, new_z);
+
+            // Insert to new bucket first - if this fails, no state has changed
+            try self.buckets[new_z].append(self.allocator, item);
+
+            // Now safe to remove from old bucket (insert succeeded)
+            _ = bucket.swapRemove(found_index.?);
+            // total_count stays the same (removed one, added one)
         }
 
         /// Get total number of items across all buckets

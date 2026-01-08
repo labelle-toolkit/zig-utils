@@ -197,14 +197,22 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
 
             // Reallocate if needed
             if (self.capacity < self.size) {
+                // Allocate both new arrays first (before freeing old ones)
+                // This ensures no state change if allocation fails
+                const new_dist = try self.allocator.alloc(u32, matrix_size);
+                errdefer self.allocator.free(new_dist);
+
+                const new_next = try self.allocator.alloc(u32, matrix_size);
+
+                // Now safe to free old arrays and update state
                 if (self.dist.len > 0) {
                     self.allocator.free(self.dist);
                 }
                 if (self.next.len > 0) {
                     self.allocator.free(self.next);
                 }
-                self.dist = try self.allocator.alloc(u32, matrix_size);
-                self.next = try self.allocator.alloc(u32, matrix_size);
+                self.dist = new_dist;
+                self.next = new_next;
                 self.capacity = self.size;
             }
 
@@ -352,40 +360,68 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
             const rows_per_thread = n / thread_count;
             const extra_rows = n % thread_count;
 
-            // Spawn worker threads
+            // Spawn worker threads - collect row assignments first
             const threads = self.allocator.alloc(std.Thread, thread_count - 1) catch {
                 self.generateSimd();
                 return;
             };
             defer self.allocator.free(threads);
 
+            const row_ranges = self.allocator.alloc([2]usize, thread_count) catch {
+                self.generateSimd();
+                return;
+            };
+            defer self.allocator.free(row_ranges);
+
+            // Calculate all row assignments upfront
             var next_row: usize = 0;
-            for (0..thread_count - 1) |t| {
+            for (0..thread_count) |t| {
                 const start = next_row;
                 var end = start + rows_per_thread;
                 if (t < extra_rows) end += 1;
+                row_ranges[t] = .{ start, end };
                 next_row = end;
+            }
 
+            // Try to spawn all worker threads
+            var spawned_count: usize = 0;
+            var spawn_failed = false;
+
+            for (0..thread_count - 1) |t| {
                 threads[t] = std.Thread.spawn(.{}, parallelWorker, .{
                     self,
-                    start,
-                    end,
+                    row_ranges[t][0],
+                    row_ranges[t][1],
                     thread_count,
                     sync_counters,
                 }) catch {
-                    // If thread spawn fails, fall back to SIMD
-                    self.generateSimd();
-                    return;
+                    spawn_failed = true;
+                    break;
                 };
+                spawned_count += 1;
             }
 
-            // Main thread processes its portion
-            const main_start = next_row;
-            const main_end = n;
-            self.parallelWorkerImpl(main_start, main_end, thread_count, sync_counters);
+            if (spawn_failed) {
+                // Some threads spawned but not all - we can't use the parallel algorithm
+                // because it requires exactly thread_count participants for synchronization.
+                // Signal all sync counters to unblock spawned threads so they complete quickly.
+                for (0..n + 1) |i| {
+                    _ = sync_counters[i].fetchAdd(@intCast(thread_count), .release);
+                }
+                // Join all spawned threads
+                for (threads[0..spawned_count]) |t| {
+                    t.join();
+                }
+                // Redo with SIMD (threads did partial work but it's incomplete)
+                self.generateSimd();
+                return;
+            }
 
-            // Join all threads
-            for (threads) |t| {
+            // Main thread processes its portion (last entry in row_ranges)
+            self.parallelWorkerImpl(row_ranges[thread_count - 1][0], row_ranges[thread_count - 1][1], thread_count, sync_counters);
+
+            // Join all spawned threads
+            for (threads[0..spawned_count]) |t| {
                 t.join();
             }
         }

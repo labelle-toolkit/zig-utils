@@ -90,16 +90,13 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
         }
 
         /// Add an edge using entity ID mapping (auto-assigns internal indices)
-        pub fn addEdgeWithMapping(self: *Self, u: u32, v: u32, w: DistanceType) void {
+        /// Returns error.OutOfMemory if the internal hash map fails to allocate
+        pub fn addEdgeWithMapping(self: *Self, u: u32, v: u32, w: DistanceType) !void {
             if (!self.ids.contains(u)) {
-                self.ids.put(u, self.newKey()) catch |err| {
-                    std.log.err("Error inserting on map: {}\n", .{err});
-                };
+                try self.ids.put(u, self.newKey());
             }
             if (!self.ids.contains(v)) {
-                self.ids.put(v, self.newKey()) catch |err| {
-                    std.log.err("Error inserting on map: {}\n", .{err});
-                };
+                try self.ids.put(v, self.newKey());
             }
             self.addEdge(self.ids.get(u).?, self.ids.get(v).?, w);
         }
@@ -173,7 +170,11 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
             // Initialize adjacency matrix and path matrix
             for (0..self.size) |_| {
                 var list = RowList.init(self.allocator);
+                errdefer list.deinit();
+
                 var row_path = RowList.init(self.allocator);
+                errdefer row_path.deinit();
+
                 for (0..self.size) |_| {
                     try list.append(0);
                     try row_path.append(0);
