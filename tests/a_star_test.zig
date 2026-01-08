@@ -21,9 +21,9 @@ pub const AStarSpec = struct {
             try astar.setNodePosition(3, .{ .x = 3, .y = 0 });
 
             // Create graph: 0 -> 1 -> 2 -> 3
-            astar.addEdge(0, 1, 1);
-            astar.addEdge(1, 2, 1);
-            astar.addEdge(2, 3, 1);
+            try astar.addEdge(0, 1, 1);
+            try astar.addEdge(1, 2, 1);
+            try astar.addEdge(2, 3, 1);
 
             var path = std.array_list.Managed(u32).init(allocator);
             defer path.deinit();
@@ -53,10 +53,10 @@ pub const AStarSpec = struct {
             // Graph with two paths to node 3:
             // 0 --5--> 1 --3--> 3  (total: 8)
             // 0 --2--> 2 --2--> 3  (total: 4) <- shorter
-            astar.addEdge(0, 1, 5);
-            astar.addEdge(1, 3, 3);
-            astar.addEdge(0, 2, 2);
-            astar.addEdge(2, 3, 2);
+            try astar.addEdge(0, 1, 5);
+            try astar.addEdge(1, 3, 3);
+            try astar.addEdge(0, 2, 2);
+            try astar.addEdge(2, 3, 2);
 
             var path = std.array_list.Managed(u32).init(allocator);
             defer path.deinit();
@@ -82,8 +82,8 @@ pub const AStarSpec = struct {
             try astar.clean();
 
             // Disconnected graph: 0 -> 1, 2 -> 3 (no path from 0 to 3)
-            astar.addEdge(0, 1, 1);
-            astar.addEdge(2, 3, 1);
+            try astar.addEdge(0, 1, 1);
+            try astar.addEdge(2, 3, 1);
 
             var path = std.array_list.Managed(u32).init(allocator);
             defer path.deinit();
@@ -105,8 +105,8 @@ pub const AStarSpec = struct {
             try astar.clean();
             astar.setHeuristic(.zero);
 
-            astar.addEdge(0, 1, 10);
-            astar.addEdge(1, 2, 20);
+            try astar.addEdge(0, 1, 10);
+            try astar.addEdge(1, 2, 20);
 
             var path = std.array_list.Managed(u32).init(allocator);
             defer path.deinit();

@@ -464,12 +464,16 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
                 }
 
                 // Process our assigned rows for this k iteration (with SIMD)
+                // Note: Reading row k during iteration k is safe because dist[k][j] and
+                // dist[i][k] don't change during iteration k (Floyd-Warshall property:
+                // dist[k][k] = 0, so min(dist[k][j], dist[k][k] + dist[k][j]) = dist[k][j])
                 for (start_row..end_row) |i| {
                     self.processRowSimd(k, i);
                 }
 
-                // If we own row k, signal that row k+1 is ready
-                // Each thread that owns row k signals all threads
+                // Signal that iteration k is complete for our rows.
+                // Only one thread owns each row k (ranges are non-overlapping).
+                // That thread signals by adding thread_count to unblock all waiting threads.
                 if (k >= start_row and k < end_row) {
                     _ = sync_counters[k + 1].fetchAdd(thread_count_u32, .release);
                 }

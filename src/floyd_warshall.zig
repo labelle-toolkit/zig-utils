@@ -34,6 +34,8 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
         graph: GraphList,
         path: GraphList,
         ids: std.AutoHashMap(u32, u32),
+        /// Reverse mapping: internal index to entity ID for O(1) reverse lookups
+        reverse_ids: std.AutoHashMap(u32, u32),
         last_key: u32 = 0,
         allocator: std.mem.Allocator,
 
@@ -42,6 +44,7 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
                 .graph = GraphList.init(allocator),
                 .path = GraphList.init(allocator),
                 .ids = std.AutoHashMap(u32, u32).init(allocator),
+                .reverse_ids = std.AutoHashMap(u32, u32).init(allocator),
                 .allocator = allocator,
             };
         }
@@ -56,6 +59,7 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
             self.graph.deinit();
             self.path.deinit();
             self.ids.deinit();
+            self.reverse_ids.deinit();
         }
 
         /// Generate a new internal key for entity mapping
@@ -93,10 +97,16 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
         /// Returns error.OutOfMemory if the internal hash map fails to allocate
         pub fn addEdgeWithMapping(self: *Self, u: u32, v: u32, w: DistanceType) !void {
             if (!self.ids.contains(u)) {
-                try self.ids.put(u, self.newKey());
+                const key = self.newKey();
+                try self.ids.put(u, key);
+                errdefer _ = self.ids.remove(u);
+                try self.reverse_ids.put(key, u);
             }
             if (!self.ids.contains(v)) {
-                try self.ids.put(v, self.newKey());
+                const key = self.newKey();
+                try self.ids.put(v, key);
+                errdefer _ = self.ids.remove(v);
+                try self.reverse_ids.put(key, v);
             }
             self.addEdge(self.ids.get(u).?, self.ids.get(v).?, w);
         }
@@ -107,43 +117,46 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
         }
 
         /// Build the path from u to v and store in the provided ArrayList
+        /// Returns error.PathNotFound if no path exists between the nodes.
         pub fn setPathWithMapping(self: *Self, path_list: *std.array_list.Managed(u32), u_node: u32, v_node: u32) !void {
+            const initial_len = path_list.items.len;
             var current = u_node;
             while (current != v_node) {
                 try path_list.append(current);
                 current = self.nextWithMapping(current, v_node);
                 if (current == std.math.maxInt(u32)) {
-                    std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
-                    return;
+                    // Clear partial path data before returning error
+                    path_list.shrinkRetainingCapacity(initial_len);
+                    return error.PathNotFound;
                 }
             }
             try path_list.append(v_node);
         }
 
         /// Build the path from u to v and store in the provided unmanaged ArrayList
+        /// Returns error.PathNotFound if no path exists between the nodes.
         pub fn setPathWithMappingUnmanaged(self: *Self, allocator: std.mem.Allocator, path_list: *std.ArrayListUnmanaged(u32), u_node: u32, v_node: u32) !void {
+            const initial_len = path_list.items.len;
             var current = u_node;
             while (current != v_node) {
                 try path_list.append(allocator, current);
                 current = self.nextWithMapping(current, v_node);
                 if (current == std.math.maxInt(u32)) {
-                    std.log.err("No path found from {} to {}\n", .{ u_node, v_node });
-                    return;
+                    // Clear partial path data before returning error
+                    path_list.shrinkRetainingCapacity(initial_len);
+                    return error.PathNotFound;
                 }
             }
             try path_list.append(allocator, v_node);
         }
 
         /// Get the next entity in the shortest path from u to v (using ID mapping)
+        /// Uses O(1) reverse lookup via reverse_ids map.
         pub fn nextWithMapping(self: *Self, u: u32, v: u32) u32 {
-            const val = self.next(self.ids.get(u).?, self.ids.get(v).?);
-            var result = self.ids.iterator();
-            while (result.next()) |entry| {
-                if (entry.value_ptr.* == val) {
-                    return entry.key_ptr.*;
-                }
-            }
-            return std.math.maxInt(u32);
+            const u_idx = self.ids.get(u) orelse return std.math.maxInt(u32);
+            const v_idx = self.ids.get(v) orelse return std.math.maxInt(u32);
+            const next_idx = self.next(u_idx, v_idx);
+            return self.reverse_ids.get(next_idx) orelse std.math.maxInt(u32);
         }
 
         /// Check if a path exists between two entities (using ID mapping)
@@ -166,21 +179,27 @@ pub fn FloydWarshall(comptime DistanceType: type) type {
             self.graph.clearRetainingCapacity();
             self.path.clearRetainingCapacity();
             self.ids.clearRetainingCapacity();
+            self.reverse_ids.clearRetainingCapacity();
 
             // Initialize adjacency matrix and path matrix
             for (0..self.size) |_| {
                 var list = RowList.init(self.allocator);
-                errdefer list.deinit();
+                var list_appended = false;
+                errdefer if (!list_appended) list.deinit();
 
                 var row_path = RowList.init(self.allocator);
-                errdefer row_path.deinit();
+                var row_path_appended = false;
+                errdefer if (!row_path_appended) row_path.deinit();
 
                 for (0..self.size) |_| {
                     try list.append(0);
                     try row_path.append(0);
                 }
                 try self.graph.append(list);
+                list_appended = true;
+
                 try self.path.append(row_path);
+                row_path_appended = true;
             }
 
             // Set initial values: 0 for self-loops, INF for no edge

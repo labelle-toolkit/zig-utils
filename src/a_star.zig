@@ -132,6 +132,7 @@ pub fn AStar(comptime WeightType: type) type {
             }
             const new_id = self.newKey();
             try self.ids.put(entity, new_id);
+            errdefer _ = self.ids.remove(entity);
             try self.reverse_ids.put(new_id, entity);
             return new_id;
         }
@@ -160,19 +161,25 @@ pub fn AStar(comptime WeightType: type) type {
             }
         }
 
+        pub const AddEdgeError = error{
+            InvalidVertex,
+            OutOfMemory,
+        };
+
         /// Add an edge between two vertices with given weight (direct index)
-        pub fn addEdge(self: *Self, u: u32, v: u32, w: WeightType) void {
-            if (u >= self.adjacency.items.len or v >= self.adjacency.items.len) return;
-            self.adjacency.items[u].append(self.allocator, .{ .to = v, .weight = w }) catch |err| {
-                std.log.err("Error adding edge: {any}\n", .{err});
-            };
+        /// Returns error.InvalidVertex if u or v is out of bounds.
+        pub fn addEdge(self: *Self, u: u32, v: u32, w: WeightType) AddEdgeError!void {
+            if (u >= self.adjacency.items.len or v >= self.adjacency.items.len) {
+                return error.InvalidVertex;
+            }
+            try self.adjacency.items[u].append(self.allocator, .{ .to = v, .weight = w });
         }
 
         /// Add an edge using entity ID mapping (auto-assigns internal indices)
         pub fn addEdgeWithMapping(self: *Self, u: u32, v: u32, w: WeightType) !void {
             const u_internal = try self.getOrCreateMapping(u);
             const v_internal = try self.getOrCreateMapping(v);
-            self.addEdge(u_internal, v_internal, w);
+            try self.addEdge(u_internal, v_internal, w);
         }
 
         /// Calculate heuristic between two internal vertex indices
@@ -274,25 +281,31 @@ pub fn AStar(comptime WeightType: type) type {
             return null; // No path found
         }
 
+        pub const MappingError = error{
+            CorruptedMapping,
+            OutOfMemory,
+        };
+
         /// Find path using entity ID mapping
+        /// Returns error.CorruptedMapping if internal nodes cannot be reverse-mapped.
         pub fn findPathWithMapping(
             self: *Self,
             source_entity: u32,
             dest_entity: u32,
             path: *std.array_list.Managed(u32),
-        ) !?WeightType {
+        ) MappingError!?WeightType {
             const source = self.ids.get(source_entity) orelse return null;
             const dest = self.ids.get(dest_entity) orelse return null;
 
             var internal_path = std.array_list.Managed(u32).init(self.allocator);
             defer internal_path.deinit();
 
-            const cost = try self.findPath(source, dest, &internal_path);
+            const cost = self.findPath(source, dest, &internal_path) catch return error.OutOfMemory;
 
             if (cost != null) {
                 path.clearRetainingCapacity();
                 for (internal_path.items) |internal_id| {
-                    const entity = self.reverse_ids.get(internal_id) orelse continue;
+                    const entity = self.reverse_ids.get(internal_id) orelse return error.CorruptedMapping;
                     try path.append(entity);
                 }
             }
@@ -337,15 +350,21 @@ pub fn AStar(comptime WeightType: type) type {
             return result orelse INF;
         }
 
+        pub const PathError = error{
+            PathNotFound,
+            CorruptedMapping,
+            OutOfMemory,
+        };
+
         /// Build the path from u to v and store in the provided ArrayList
-        pub fn setPathWithMapping(self: *Self, path_list: *std.array_list.Managed(u32), u: u32, v: u32) !void {
+        /// Returns error.PathNotFound if no path exists between the nodes.
+        pub fn setPathWithMapping(self: *Self, path_list: *std.array_list.Managed(u32), u: u32, v: u32) PathError!void {
             var path = std.array_list.Managed(u32).init(self.allocator);
             defer path.deinit();
 
             const result = try self.findPathWithMapping(u, v, &path);
             if (result == null) {
-                std.log.err("No path found from {} to {}\n", .{ u, v });
-                return;
+                return error.PathNotFound;
             }
 
             path_list.clearRetainingCapacity();
