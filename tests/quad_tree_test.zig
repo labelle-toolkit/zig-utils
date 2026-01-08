@@ -78,7 +78,7 @@ pub const RectangleSpec = struct {
 };
 
 pub const QuadTreeSpec = struct {
-    const QT = QuadTree(u32);
+    const QT = QuadTree(u32, .{});
     const Point = EntityPoint(u32);
 
     pub const init = struct {

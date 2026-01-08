@@ -77,12 +77,12 @@ pub fn EntityPoint(comptime T: type) type {
 }
 
 /// QuadTree node for internal storage
-fn QuadTreeNode(comptime T: type) type {
+fn QuadTreeNode(comptime T: type, comptime capacity: u32) type {
     const Point = EntityPoint(T);
 
     return struct {
         total_elements: u32 = 0,
-        points: [4]Point = undefined,
+        points: [capacity]Point = undefined,
         boundary: Rectangle,
         divided: bool = false,
         nw: u32 = 0,
@@ -92,19 +92,27 @@ fn QuadTreeNode(comptime T: type) type {
     };
 }
 
+/// QuadTree configuration
+pub const QuadTreeConfig = struct {
+    /// Maximum points per node before subdivision (default: 4)
+    capacity: u32 = 4,
+    /// Boundary margin for auto-computed bounds (default: 120.0)
+    gutter: f32 = 120.0,
+};
+
 /// QuadTree for efficient spatial partitioning and queries
 ///
-/// Generic over the ID type for flexibility (u32, u64, custom types)
-pub fn QuadTree(comptime T: type) type {
+/// Generic over:
+/// - T: ID type for flexibility (u32, u64, custom types)
+/// - config: Comptime configuration for capacity and gutter
+pub fn QuadTree(comptime T: type, comptime config: QuadTreeConfig) type {
     const Point = EntityPoint(T);
-    const Node = QuadTreeNode(T);
+    const Node = QuadTreeNode(T, config.capacity);
 
     return struct {
         const Self = @This();
 
         nodes: std.ArrayListUnmanaged(Node),
-        capacity: u32 = 4,
-        gutter: f32 = 120.0,
 
         lowest_x: f32 = 0.0,
         lowest_y: f32 = 0.0,
@@ -164,20 +172,20 @@ pub fn QuadTree(comptime T: type) type {
             }
 
             try self.nodes.append(self.allocator, .{ .boundary = .{
-                .x = self.lowest_x - self.gutter,
-                .y = self.lowest_y - self.gutter,
-                .width = (self.highest_x - self.lowest_x) + self.gutter * 2,
-                .height = (self.highest_y - self.lowest_y) + self.gutter * 2,
+                .x = self.lowest_x - config.gutter,
+                .y = self.lowest_y - config.gutter,
+                .width = (self.highest_x - self.lowest_x) + config.gutter * 2,
+                .height = (self.highest_y - self.lowest_y) + config.gutter * 2,
             } });
         }
 
         /// Clear the tree keeping current boundaries
         pub fn reset(self: *Self) !void {
             const boundary = Rectangle{
-                .x = self.lowest_x - self.gutter,
-                .y = self.lowest_y - self.gutter,
-                .width = (self.highest_x - self.lowest_x) + self.gutter * 2,
-                .height = (self.highest_y - self.lowest_y) + self.gutter * 2,
+                .x = self.lowest_x - config.gutter,
+                .y = self.lowest_y - config.gutter,
+                .width = (self.highest_x - self.lowest_x) + config.gutter * 2,
+                .height = (self.highest_y - self.lowest_y) + config.gutter * 2,
             };
             self.nodes.clearRetainingCapacity();
             self.lowest_x = std.math.inf(f32);
@@ -202,7 +210,7 @@ pub fn QuadTree(comptime T: type) type {
                 return false;
             }
 
-            if (self.nodes.items[node_idx].total_elements < self.capacity and !self.nodes.items[node_idx].divided) {
+            if (self.nodes.items[node_idx].total_elements < config.capacity and !self.nodes.items[node_idx].divided) {
                 self.nodes.items[node_idx].points[self.nodes.items[node_idx].total_elements] = point;
                 self.nodes.items[node_idx].total_elements += 1;
                 return true;
