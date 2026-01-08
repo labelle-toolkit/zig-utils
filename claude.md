@@ -6,11 +6,14 @@ Standalone math utilities library for Zig. Part of the labelle-toolkit.
 
 ```
 src/
-  root.zig           - Main module exports
-  vector.zig         - Position and PositionI types
-  quad_tree.zig      - QuadTree spatial partitioning (generic, Position-based)
-  sweep_and_prune.zig - Sweep and Prune collision detection
-  sparse_set.zig     - SparseSet O(1) key-value mapping
+  root.zig              - Main module exports
+  vector.zig            - Position and PositionI types
+  quad_tree.zig         - QuadTree spatial partitioning (generic, Position-based)
+  sweep_and_prune.zig   - Sweep and Prune collision detection
+  sparse_set.zig        - SparseSet O(1) key-value mapping
+  z_index_buckets.zig   - ZIndexBuckets sorted storage by u8 key
+  zon_coercion.zig      - Comptime ZON to struct conversion
+  hook_dispatcher.zig   - Zero-overhead comptime event dispatcher
 tests/
   root.zig               - Test entry point
   vector_test.zig        - Position/PositionI tests
@@ -25,6 +28,8 @@ tests/
 - `QuadTree(T)` - Generic spatial index with Position-based queries
 - `SweepAndPrune(T)` - Generic broad-phase collision detection
 - `SparseSet(T)` - O(1) key-value mapping with cache-friendly iteration
+- `ZIndexBuckets(T)` - Bucket-sorted storage by u8 key (256 buckets)
+- `HookDispatcher` - Zero-overhead comptime event dispatcher
 - `Rectangle` - AABB for bounds and collision
 - `EntityPoint(T)` - Point with generic ID for QuadTree
 - `AABB` - Axis-aligned bounding box for SweepAndPrune
@@ -74,6 +79,27 @@ zig build test
 | contains  | 0.76 ns   | 4.61 ns |
 
 **Trade-off:** ~40KB memory for 10k max keys vs variable for HashMap
+
+### ZIndexBuckets
+- 256 buckets (one per u8 z-index level)
+- O(1) insert, O(bucket_size) remove
+- O(256 + n) ordered iteration
+- Generic over item type T
+- Optional custom equality via `eql` method
+
+### ZON Coercion
+- Comptime conversion of anonymous structs to typed structs
+- Handles nested structs, optionals, slices, arrays
+- Tagged union coercion from enum literals or structs
+- Struct merging with override semantics
+- Functions: `coerceValue`, `buildStruct`, `tupleToSlice`, `mergeStructs`
+
+### HookDispatcher
+- Zero-overhead comptime event dispatch
+- Handlers resolved entirely at compile time
+- No runtime overhead for missing handlers
+- `MergeHooks` for composing multiple handler structs
+- `EmptyDispatcher` for default no-op dispatching
 
 ## Related
 
