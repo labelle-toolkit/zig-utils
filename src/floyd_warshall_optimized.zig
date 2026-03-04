@@ -9,6 +9,7 @@
 //! source-destination queries.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const INF: u32 = std.math.maxInt(u32);
 
@@ -236,7 +237,7 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
 
         /// Run the Floyd-Warshall algorithm to compute all shortest paths
         pub fn generate(self: *Self) void {
-            if (config.parallel and self.size > 64) {
+            if (config.parallel and !builtin.single_threaded and self.size > 64) {
                 self.generateParallel();
             } else if (config.simd) {
                 self.generateSimd();
