@@ -258,55 +258,38 @@ fn MergedStructType(comptime BaseType: type, comptime OverridesType: type) type 
         }
     }
 
-    comptime var fields: [field_count]std.builtin.Type.StructField = undefined;
+    comptime var field_names: [field_count][]const u8 = undefined;
+    comptime var field_types: [field_count]type = undefined;
+    comptime var field_attrs: [field_count]std.builtin.Type.StructField.Attributes = undefined;
     comptime var i = 0;
 
     inline for (base_fields) |bf| {
         if (@hasField(OverridesType, bf.name)) {
             inline for (override_fields) |of| {
                 if (comptime std.mem.eql(u8, of.name, bf.name)) {
-                    fields[i] = .{
-                        .name = bf.name,
-                        .type = of.type,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = @alignOf(of.type),
-                    };
+                    field_names[i] = bf.name;
+                    field_types[i] = of.type;
+                    field_attrs[i] = .{ .@"align" = @alignOf(of.type) };
                 }
             }
         } else {
-            fields[i] = .{
-                .name = bf.name,
-                .type = bf.type,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(bf.type),
-            };
+            field_names[i] = bf.name;
+            field_types[i] = bf.type;
+            field_attrs[i] = .{ .@"align" = @alignOf(bf.type) };
         }
         i += 1;
     }
 
     inline for (override_fields) |of| {
         if (!@hasField(BaseType, of.name)) {
-            fields[i] = .{
-                .name = of.name,
-                .type = of.type,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(of.type),
-            };
+            field_names[i] = of.name;
+            field_types[i] = of.type;
+            field_attrs[i] = .{ .@"align" = @alignOf(of.type) };
             i += 1;
         }
     }
 
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 /// Check if a struct type has any fields
