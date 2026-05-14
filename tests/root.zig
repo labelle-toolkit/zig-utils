@@ -12,5 +12,5 @@ pub const heuristics_test = @import("heuristics_test.zig");
 pub const zon_coercion_test = @import("zon_coercion_test.zig");
 
 test {
-    std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }
