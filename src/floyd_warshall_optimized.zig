@@ -488,12 +488,15 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
                     self.processRowSimd(k, i);
                 }
 
-                // Signal that iteration k is complete for our rows.
-                // Only one thread owns each row k (ranges are non-overlapping).
-                // That thread signals by adding thread_count to unblock all waiting threads.
-                if (k >= start_row and k < end_row) {
-                    _ = sync_counters[k + 1].fetchAdd(thread_count_u32, .release);
-                }
+                // Full barrier: EVERY thread signals completion of iteration k,
+                // and iteration k+1 only starts once all `thread_count` threads
+                // have arrived (counter reaches thread_count). The previous code
+                // had only the owner of row k signal (adding thread_count once),
+                // which is NOT a barrier — a fast thread could enter iteration
+                // k+1 and read the next pivot row (k+1) while ITS owner was still
+                // updating it in iteration k, producing a `dist`/`next` matrix
+                // that's mutually inconsistent (cycles in `next`). See #13.
+                _ = sync_counters[k + 1].fetchAdd(1, .release);
             }
         }
 
