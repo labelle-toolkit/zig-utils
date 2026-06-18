@@ -157,12 +157,22 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
         /// Returns error.NoPathFound if no path exists between the nodes
         pub fn setPathWithMapping(self: *const Self, path_list: *std.array_list.Managed(u32), u_node: u32, v_node: u32) PathError!void {
             var current = u_node;
+            var steps: usize = 0;
+            const max_steps: usize = self.size; // a shortest path visits each node at most once
             while (current != v_node) {
+                // Cycle / corrupt next-hop guard: without this, an inconsistent
+                // `next` matrix (a cycle that never reaches `v_node`) loops
+                // forever, growing `path_list` unbounded — a hard hang + OOM.
+                // A real shortest path is at most `size` hops, so anything
+                // longer is a cycle. Surfaced as a permanent freeze + memory
+                // blow-up loading a 1000-worker flying-platform colony.
+                if (steps > max_steps) return error.NoPathFound;
                 try path_list.append(current);
                 current = self.nextWithMapping(current, v_node);
                 if (current == INF) {
                     return error.NoPathFound;
                 }
+                steps += 1;
             }
             try path_list.append(v_node);
         }
@@ -171,12 +181,18 @@ pub fn FloydWarshallOptimized(comptime config: Config) type {
         /// Returns error.NoPathFound if no path exists between the nodes
         pub fn setPathWithMappingUnmanaged(self: *const Self, allocator: std.mem.Allocator, path_list: *std.ArrayListUnmanaged(u32), u_node: u32, v_node: u32) PathError!void {
             var current = u_node;
+            var steps: usize = 0;
+            const max_steps: usize = self.size; // a shortest path visits each node at most once
             while (current != v_node) {
+                // See `setPathWithMapping` — guards an inconsistent `next`
+                // matrix cycle from looping forever (hang + unbounded alloc).
+                if (steps > max_steps) return error.NoPathFound;
                 try path_list.append(allocator, current);
                 current = self.nextWithMapping(current, v_node);
                 if (current == INF) {
                     return error.NoPathFound;
                 }
+                steps += 1;
             }
             try path_list.append(allocator, v_node);
         }
