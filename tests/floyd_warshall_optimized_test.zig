@@ -115,7 +115,7 @@ pub const FloydWarshallOptimizedSpec = struct {
 
             fw.generate();
 
-            var path = std.ArrayListUnmanaged(u32){};
+            var path = std.ArrayListUnmanaged(u32).empty;
             defer path.deinit(allocator);
 
             try fw.setPathWithMappingUnmanaged(allocator, &path, 10, 40);
@@ -152,7 +152,7 @@ pub const FloydWarshallOptimizedSpec = struct {
             fw.next[idx_a * size + idx_d] = idx_b; // from 10 toward 40 -> 20
             fw.next[idx_b * size + idx_d] = idx_a; // from 20 toward 40 -> back to 10
 
-            var path = std.ArrayListUnmanaged(u32){};
+            var path = std.ArrayListUnmanaged(u32).empty;
             defer path.deinit(allocator);
 
             // Must TERMINATE with an error, not hang.

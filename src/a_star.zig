@@ -227,15 +227,15 @@ pub fn AStar(comptime WeightType: type) type {
             var closed_set = try std.DynamicBitSet.initEmpty(self.allocator, n);
             defer closed_set.deinit();
 
-            var open_set = std.PriorityQueue(PQNode, void, PQNode.compare).init(self.allocator, {});
-            defer open_set.deinit();
+            var open_set = std.PriorityQueue(PQNode, void, PQNode.compare).initContext({});
+            defer open_set.deinit(self.allocator);
 
             // Initialize source
             g_score[source] = 0;
             const h = self.calculateHeuristic(source, dest);
-            try open_set.add(.{ .vertex = source, .f_score = h });
+            try open_set.push(self.allocator, .{ .vertex = source, .f_score = h });
 
-            while (open_set.removeOrNull()) |current| {
+            while (open_set.pop()) |current| {
                 if (current.vertex == dest) {
                     // Reconstruct path
                     var node = dest;
@@ -273,7 +273,7 @@ pub fn AStar(comptime WeightType: type) type {
                         g_score[edge.to] = tentative_g;
 
                         const f = @as(f32, @floatFromInt(tentative_g)) + self.calculateHeuristic(edge.to, dest);
-                        try open_set.add(.{ .vertex = edge.to, .f_score = f });
+                        try open_set.push(self.allocator, .{ .vertex = edge.to, .f_score = f });
                     }
                 }
             }

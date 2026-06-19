@@ -38,7 +38,7 @@ pub fn ZIndexBuckets(comptime T: type, comptime ZIndexType: type) type {
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return Self{
-                .buckets = [_]Bucket{.{}} ** bucket_count,
+                .buckets = [_]Bucket{.empty} ** bucket_count,
                 .allocator = allocator,
                 .total_count = 0,
             };
