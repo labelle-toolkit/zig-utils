@@ -12,8 +12,31 @@ pub const a_star_test = @import("a_star_test.zig");
 pub const heuristics_test = @import("heuristics_test.zig");
 pub const zon_coercion_test = @import("zon_coercion_test.zig");
 
+// std's `refAllDecls` is ONE level deep — it references the imported test
+// structs above, but NOT the `pub const FooSpec = struct { pub const group =
+// struct { test "..." {} } }` groups nested inside them. Under Zig 0.16 a
+// `test` block is only collected into the test binary once its containing
+// struct is semantically analyzed, so every doubly-nested zspec test was
+// silently never run, and `zig build test` passed even with a failing
+// assertion (#14). Recurse into every nested container type so each group
+// struct is analyzed and its tests get collected. (Zig 0.16 dropped
+// `std.testing.refAllDeclsRecursive`, hence the local copy.)
+fn refAllDeclsRecursive(comptime T: type) void {
+    if (!@import("builtin").is_test) return;
+    inline for (comptime std.meta.declarations(T)) |decl| {
+        const field = @field(T, decl.name);
+        if (@TypeOf(field) == type) {
+            switch (@typeInfo(field)) {
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(field),
+                else => {},
+            }
+        }
+        _ = &@field(T, decl.name);
+    }
+}
+
 test {
-    std.testing.refAllDecls(@This());
+    refAllDeclsRecursive(@This());
 }
 
 // Regression for #13 — kept at the test ROOT (top-level) on purpose: the
